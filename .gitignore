@@ -1,0 +1,24 @@
+# Python 构建产物缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 临时文件（开发过程中的中间产物，不属于交付内容）
+tmpwork/
+_tmp/
+_*.png
+_*.html
+_*.json
+_*.md
+test_*
+!README.md
+
+# shell 重定向写错产生的垃圾文件（如名为 2 的）
+/2

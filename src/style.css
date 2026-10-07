@@ -1,0 +1,787 @@
+/* 玄清棋典 —— 样式（奶油风：暖白底 · 木色主调 · 大圆角 · 柔阴影） */
+:root {
+  /* 底色：奶油白与米色 */
+  --bg: #fdfaf5;
+  --bg-2: #f8f3ea;
+  --card: #ffffff;
+  --line: #f2e9dc;
+  --line-2: #e9ddc9;
+
+  /* 文字：暖棕灰，不使用纯黑 */
+  --ink: #4b423a;
+  --ink-2: #7d7166;
+  --ink-3: #aa9e91;
+
+  /* 主色：木色 */
+  --accent: #b08968;
+  --accent-2: #8c6d4f;
+  --accent-soft: #f8f0e6;
+
+  --wood: #a8845c;
+  --wood-soft: #faf5ec;
+
+  /* 语义色：同样降饱和 */
+  --good: #7f9a72;
+  --bad: #c9907e;
+  --warn-soft: #fbf3e9;
+
+  --radius: 20px;
+  --radius-s: 14px;
+  --radius-xs: 10px;
+  --shadow: 0 2px 10px rgba(176, 152, 122, 0.07), 0 10px 28px -18px rgba(176, 152, 122, 0.20);
+  --shadow-hover: 0 4px 16px rgba(176, 152, 122, 0.13), 0 14px 34px -18px rgba(176, 152, 122, 0.26);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.85;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* **始终预留竖直滚动条的位置**。
+   不这么做的话：内容长的板块（围棋 / 象棋）会出滚动条、占去约 15px 视口宽度，
+   居中的内容被挤左半个滚动条；国际象棋板块内容短、没有滚动条，位置就对不上 ——
+   切换板块看起来像「整块往右挪了一点点」（用户报的现象）。
+   scrollbar-gutter: stable 让浏览器一直留着那条位置，有没有滚动条都不再影响布局。 */
+html { scrollbar-gutter: stable; }
+
+/* 滚动条也收细一点（与奶油风配色统一）。留白宽度 = 滚动条宽度，所以细一点观感更好。 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(176, 137, 104, 0.32); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(176, 137, 104, 0.52); }
+
+button, input, select { font-family: inherit; font-size: inherit; color: inherit; }
+button { cursor: pointer; border: none; background: none; border-radius: var(--radius-xs); }
+a { color: var(--accent-2); text-decoration: none; border-bottom: 1px solid var(--line-2); }
+a:hover { border-bottom-color: var(--accent); }
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(253, 250, 245, 0.94);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar-in {
+  max-width: 1080px; margin: 0 auto; padding: 12px 22px;
+  display: flex; align-items: center; gap: 20px;
+}
+.brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+/* LOGO：线装古书（图形本身是 index.html 里的内联 SVG）——
+   原来是「黑子 + 白子」两个圆，属于围棋专用；现在一部棋典含围棋与象棋两个板块，
+   用「书」更贴切，也不会偏向任何一种棋。 */
+.logo {
+  width: 26px; height: 26px; display: block; flex-shrink: 0;
+  filter: drop-shadow(0 1px 3px rgba(120, 100, 80, 0.28));
+}
+.brand-name { font-size: 16.5px; font-weight: 600; letter-spacing: 1px; color: var(--accent-2); }
+
+/* 导航：**左边界固定**，按钮从固定位置起排 ——
+   不能用右对齐（`margin-left: auto`）：三个板块的按钮数不同（围棋 11 / 象棋 9 / 国际象棋 9），
+   右对齐时**左边界会随按钮多少左右浮动**，切换板块看起来像「整块往右挪了一点」（用户报的现象，
+   实测左边界差 137px）。改成 `flex: 1` + 左对齐后，起排位置恒定。
+   另外：不换行（换行会顶高顶栏、挤占棋盘），也**不加滚动条**（用户明确不要）。 */
+.nav {
+  display: flex; gap: 4px; flex: 1;
+  justify-content: flex-start;
+  flex-wrap: nowrap; overflow: visible;
+}
+.nav button {
+  padding: 8px 15px; border-radius: 999px; white-space: nowrap;
+  color: var(--ink-2); font-size: 14px; transition: all .22s ease;
+}
+.nav button:hover { background: var(--wood-soft); color: var(--ink); }
+.nav button.on { background: var(--accent); color: #fffdf9; font-weight: 500; box-shadow: 0 2px 8px rgba(176, 137, 104, 0.28); }
+
+/* 窗口偏窄时把按钮**收小一档**兜底 —— 宁可字小一点，
+   也不要滚动条（用户明确不要），也不要换行（换行会顶高顶栏、挤掉棋盘空间）。 */
+@media (max-width: 1280px) {
+  .nav { gap: 3px; }
+  .nav button { padding: 7px 11px; font-size: 13px; }
+  .game-switch { padding-right: 9px; }
+  .game-switch button { padding: 6px 9px; font-size: 12.5px; }
+}
+@media (max-width: 1100px) {
+  .nav { gap: 2px; }
+  .nav button { padding: 6px 8px; font-size: 12px; }
+  .game-switch button { padding: 5px 7px; font-size: 11.5px; }
+}
+@media (max-width: 900px) {
+  .brand-name { display: none; }        /* 最窄时先舍掉站名，把宽度让给按钮 */
+  .nav button { padding: 5px 7px; font-size: 11.5px; }
+}
+.nav-tip { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
+
+/* ---------- 棋种切换（玄清棋典 = 围棋 · 弈典 + 象棋 · 象典） ----------
+   放在导航最前面，与页面按钮用竖线分开：
+   棋种按钮表示「在哪个板块」，页面按钮表示「板块里的哪一页」。
+   选中态用描边（而不是页面按钮那种实心），两者同时高亮也不会混。 */
+/* 板块切换紧挨 LOGO（左上角），与右边的导航用一条竖线分开 */
+.game-switch {
+  display: flex; gap: 3px; align-items: center; flex-shrink: 0;
+  padding-right: 12px; border-right: 1px solid var(--line);
+}
+.game-switch button { padding: 7px 12px; font-size: 13.5px; }
+.game-switch button.on {
+  background: transparent; color: var(--accent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* 导航按板块整组显示；用 display:contents 让这层 span 不影响 flex 排布 */
+.nav-set { display: contents; }
+.nav-set[hidden] { display: none; }
+
+/* ---------- 布局 ---------- */
+main { max-width: 1080px; margin: 0 auto; padding: 32px 22px 72px; min-height: 60vh; }
+.footer { border-top: 1px solid var(--line); margin-top: 48px; }
+.footer-in {
+  max-width: 1080px; margin: 0 auto; padding: 20px 22px;
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  font-size: 12.5px; color: var(--ink-3);
+}
+
+/* ---------- 通用组件 ---------- */
+.card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 24px 28px; box-shadow: var(--shadow);
+}
+h1 { font-size: 27px; font-weight: 600; margin: 0 0 8px; letter-spacing: .5px; color: #453c34; }
+h2 { font-size: 19px; font-weight: 600; margin: 36px 0 16px; }
+h3 { font-size: 16px; font-weight: 600; margin: 24px 0 8px; }
+.sub { color: var(--ink-2); font-size: 14.5px; margin: 0 0 26px; }
+.muted { color: var(--ink-3); }
+.small { font-size: 13px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 10px 20px; border-radius: 999px;
+  background: var(--accent); color: #fffdf9; font-size: 14px; font-weight: 500;
+  transition: all .22s ease; box-shadow: 0 2px 8px rgba(176, 137, 104, 0.22);
+}
+.btn:hover { background: var(--accent-2); transform: translateY(-1px); box-shadow: var(--shadow-hover); }
+.btn.ghost {
+  background: var(--card); color: var(--ink-2);
+  border: 1px solid var(--line-2); box-shadow: none;
+}
+.btn.ghost:hover { background: var(--wood-soft); color: var(--ink); border-color: var(--line-2); }
+.btn.sm { padding: 7px 15px; font-size: 13px; }
+.btn:disabled { opacity: .38; cursor: default; transform: none; box-shadow: none; }
+
+/* 返回上一级：页面最上方一个独立的胶囊按钮。
+   这是**层级**返回（题目详情 → 题目列表 → 首页），跟浏览器的历史返回无关。 */
+.back-bar { margin: 0 0 16px; }
+.btn-back {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 12px 24px; border-radius: 999px;
+  background: var(--card); color: var(--ink);
+  border: 1.5px solid var(--line-2); text-decoration: none;
+  font-size: 15.5px; font-weight: 600; line-height: 1;
+  box-shadow: var(--shadow);
+  transition: background .16s, transform .16s, box-shadow .16s, border-color .16s;
+}
+.btn-back:hover {
+  background: var(--wood-soft); border-color: var(--accent);
+  transform: translateY(-1px); box-shadow: var(--shadow-hover);
+}
+.btn-back .ar { font-size: 18px; line-height: 1; color: var(--accent); }
+.btn:disabled:hover { background: var(--accent); }
+.btn.ghost:disabled:hover { background: var(--card); }
+
+.pill {
+  display: inline-block; padding: 3px 13px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-2);
+  font-size: 12px; font-weight: 600;
+}
+.pill.wood { background: var(--wood-soft); color: var(--wood); }
+.pill.gray { background: var(--bg-2); color: var(--ink-3); }
+
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.spacer { flex: 1; }
+
+/* ---------- 首页 ---------- */
+.hero { padding: 6px 0 4px; }
+.hero h1 { font-size: 31px; }
+.hero .sub { font-size: 15px; max-width: 640px; }
+
+.stat-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px; margin: 24px 0;
+}
+.stat {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius-s); padding: 16px 20px; box-shadow: var(--shadow);
+}
+.stat .n { font-size: 24px; font-weight: 600; color: var(--accent-2); line-height: 1.25; }
+.stat .l { font-size: 12.5px; color: var(--ink-3); margin-top: 3px; }
+
+.entry-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px; margin-top: 20px;
+}
+.entry {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 22px 24px;
+  text-align: left; transition: all .24s ease; display: block; width: 100%;
+  box-shadow: var(--shadow);
+}
+.entry:hover { border-color: var(--line-2); transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+.entry .t { font-size: 16.5px; font-weight: 600; margin-bottom: 5px; color: #453c34; }
+.entry .d { font-size: 13px; color: var(--ink-2); line-height: 1.7; }
+.entry .m { font-size: 12px; color: var(--ink-3); margin-top: 12px; }
+
+.path { margin-top: 16px; }
+.path-step { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px dashed var(--line-2); }
+.path-step:last-child { border-bottom: none; }
+.path-num {
+  flex: 0 0 30px; height: 30px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; margin-top: 2px;
+}
+.path-body { flex: 1; }
+.path-body .t { font-weight: 600; margin-bottom: 3px; }
+.path-body .d { font-size: 13.5px; color: var(--ink-2); }
+
+/* ---------- 课程列表 ---------- */
+.part-title {
+  display: flex; align-items: center; gap: 12px;
+  margin: 34px 0 14px; font-size: 15px; font-weight: 600; color: var(--wood);
+}
+.part-title::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.lesson-list { display: grid; gap: 11px; }
+.lesson-item {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius-s); padding: 16px 20px;
+  transition: all .22s ease; text-align: left; width: 100%; box-shadow: var(--shadow);
+}
+.lesson-item:hover { border-color: var(--line-2); transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+.lesson-item .idx {
+  flex: 0 0 32px; height: 32px; border-radius: 50%;
+  background: var(--bg-2); color: var(--ink-3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600;
+}
+.lesson-item.done .idx { background: var(--accent); color: #fffdf9; }
+.lesson-item .body { flex: 1; min-width: 0; }
+.lesson-item .t { font-weight: 600; font-size: 15px; color: #453c34; }
+.lesson-item .d { font-size: 13px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lesson-item .go { color: var(--ink-3); font-size: 13px; flex-shrink: 0; }
+
+/* ---------- 课程详情 ---------- */
+.lesson-head { margin-bottom: 22px; }
+.lesson-head .crumb { font-size: 13px; color: var(--ink-3); margin-bottom: 10px; }
+.lesson-head h1 { font-size: 25px; }
+.lesson-head .lede { font-size: 15px; color: var(--ink-2); margin-top: 8px; }
+
+.sec { margin: 24px 0; }
+.sec h3 { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+.sec h3::before { content: ''; width: 4px; height: 15px; border-radius: 999px; background: var(--accent); }
+.sec p { margin: 9px 0; }
+.sec p.note { color: var(--ink-2); font-size: 14px; }
+
+.demo-wrap { margin: 22px 0; }
+.board-shell {
+  background: var(--wood-soft); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px;
+}
+/* 棋盘容器：路数越多，容器越大，保证格子和棋子都看得清 */
+.board-holder { width: 100%; margin: 0 auto; }
+.board-holder.sz9  { max-width: 480px; }
+.board-holder.sz13 { max-width: 560px; }
+.board-holder.sz19 { max-width: 640px; }
+.board-holder canvas { display: block; border-radius: 12px; }
+.board-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding: 0 4px; }
+.board-say {
+  background: var(--accent-soft); border-left: 3px solid var(--accent);
+  border-radius: var(--radius-s); padding: 14px 18px; margin: 14px 0 0;
+  font-size: 14.5px; color: var(--accent-2); min-height: 50px;
+}
+.step-dots { display: flex; gap: 6px; }
+.step-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); display: block; transition: all .25s; }
+.step-dots i.on { background: var(--accent); width: 16px; border-radius: 999px; }
+
+/* 多步题进度条（2026-09-28）*/
+.seq-progress { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 0 4px; flex-wrap: wrap; }
+.seq-dots { display: flex; gap: 5px; align-items: center; }
+.seq-dots i {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--line-2); display: block; transition: all .22s;
+}
+.seq-dots i.on { background: var(--accent); }
+.seq-dots i.cur { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* 定式页：每一步在干什么 */
+.jk-step-head { font-weight: 600; color: var(--accent-2); margin-bottom: 6px; }
+.jk-step-note { font-size: 14.5px; line-height: 1.75; color: var(--ink-2); }
+.jk-step-note.muted { color: var(--ink-3); }
+
+.keybox { background: var(--wood-soft); border-radius: var(--radius-s); padding: 18px 22px; margin: 24px 0; }
+.keybox .t { font-weight: 600; font-size: 13px; color: var(--wood); margin-bottom: 10px; letter-spacing: 1.5px; }
+.keybox ul { margin: 0; padding-left: 20px; }
+.keybox li { margin: 6px 0; font-size: 14.5px; }
+.keybox p { margin: 0; font-size: 14.5px; line-height: 1.75; }
+
+.lesson-nav {
+  display: flex; gap: 10px; justify-content: space-between;
+  margin-top: 34px; padding-top: 22px; border-top: 1px solid var(--line);
+}
+
+/* ---------- 练习 ---------- */
+.filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.filter-bar button {
+  padding: 7px 16px; border-radius: 999px; font-size: 13.5px;
+  background: var(--card); border: 1px solid var(--line); color: var(--ink-2);
+  transition: all .22s ease;
+}
+.filter-bar button:hover { border-color: var(--line-2); background: var(--wood-soft); color: var(--ink); }
+.filter-bar button.on { background: var(--accent); border-color: var(--accent); color: #fffdf9; }
+
+.prob-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.prob-item {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius-s); padding: 15px 17px; text-align: left;
+  transition: all .22s ease; position: relative; box-shadow: var(--shadow);
+}
+.prob-item:hover { border-color: var(--line-2); transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+.prob-item .id { font-size: 12px; color: var(--ink-3); }
+.prob-item .cat { font-weight: 600; font-size: 14px; margin: 3px 0 5px; color: #453c34; }
+.prob-item .ask { font-size: 12.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prob-item .mark {
+  position: absolute; top: 13px; right: 15px;
+  width: 19px; height: 19px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #fffdf9; font-weight: 700;
+}
+.prob-item.ok .mark { background: var(--good); }
+.prob-item.no .mark { background: var(--bad); }
+.prob-item.done { background: #fefcf8; }
+
+.q-panel { margin-top: 6px; }
+.q-ask { font-size: 17.5px; font-weight: 600; line-height: 1.7; margin: 0 0 5px; }
+.q-meta { display: flex; gap: 8px; align-items: center; margin-bottom: 18px; }
+
+.choice-grid { display: grid; gap: 11px; margin-top: 8px; }
+.choice-grid button {
+  padding: 15px 20px; border-radius: var(--radius-s);
+  background: var(--card); border: 1.5px solid var(--line-2);
+  text-align: left; font-size: 15px; transition: all .22s ease;
+}
+.choice-grid button:hover { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-1px); }
+.choice-grid button.picked-ok { border-color: var(--good); background: #f2f7f0; font-weight: 600; }
+.choice-grid button.picked-no { border-color: var(--bad); background: #fdf1ed; }
+.choice-grid button:disabled { cursor: default; }
+.choice-grid button:disabled:hover { background: var(--card); transform: none; }
+.choice-grid button.picked-ok:disabled:hover { background: #f2f7f0; }
+.choice-grid button.picked-no:disabled:hover { background: #fdf1ed; }
+
+.feedback { margin-top: 20px; border-radius: var(--radius-s); padding: 18px 22px; border: 1px solid var(--line); }
+.feedback.ok { background: #f4f8f2; border-color: #dfe9da; }
+.feedback.no { background: #fdf4f0; border-color: #f2ddd4; }
+.feedback .head { font-weight: 600; font-size: 15px; margin-bottom: 7px; }
+.feedback.ok .head { color: #5d7a52; }
+.feedback.no .head { color: #b5705c; }
+
+.explain-block { margin: 20px 0; }
+.explain-block .lbl {
+  display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: 1.5px;
+  color: var(--wood); background: var(--wood-soft);
+  padding: 3px 12px; border-radius: 999px; margin-bottom: 10px;
+}
+.explain-block .lbl.g { color: var(--accent-2); background: var(--accent-soft); }
+.explain-block p { margin: 8px 0; font-size: 14.5px; }
+.explain-block ol { margin: 8px 0; padding-left: 22px; }
+.explain-block li { margin: 7px 0; font-size: 14.5px; }
+
+.trap-item {
+  background: var(--warn-soft); border-left: 3px solid #dcae7e;
+  border-radius: var(--radius-xs); padding: 13px 17px; margin: 10px 0; font-size: 14px;
+}
+.trap-item b { color: #a5773f; }
+
+.principle {
+  background: var(--accent-soft); border-radius: var(--radius-s);
+  padding: 17px 21px; font-size: 14.5px; color: var(--accent-2);
+  border-left: 3px solid var(--accent); margin: 20px 0;
+}
+
+.hint-list { margin: 16px 0; }
+.hint-item {
+  display: flex; gap: 12px; padding: 10px 0; font-size: 14.5px;
+  color: var(--ink-2); animation: fadeUp .35s ease;
+}
+.hint-item .n {
+  flex: 0 0 22px; height: 22px; border-radius: 50%;
+  background: var(--wood-soft); color: var(--wood);
+  font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; margin-top: 4px;
+}
+@keyframes fadeUp { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+/* ---------- 词典 ---------- */
+.search-box {
+  width: 100%; padding: 13px 18px; border-radius: var(--radius-s);
+  border: 1px solid var(--line-2); background: var(--card);
+  margin-bottom: 20px; outline: none; transition: all .2s;
+}
+.search-box:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.gloss-list { display: grid; gap: 10px; }
+.gloss-item { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; box-shadow: var(--shadow); }
+.gloss-head { width: 100%; display: flex; align-items: center; gap: 12px; padding: 15px 20px; text-align: left; }
+.gloss-head:hover { background: var(--wood-soft); }
+.gloss-head .t { font-weight: 600; font-size: 15.5px; color: #453c34; }
+.gloss-head .arrow { margin-left: auto; color: var(--ink-3); font-size: 13px; transition: transform .25s; }
+.gloss-item.open .arrow { transform: rotate(90deg); }
+.gloss-body { display: none; padding: 0 20px 18px; font-size: 14.5px; color: var(--ink-2); line-height: 1.85; }
+.gloss-item.open .gloss-body { display: block; }
+.gloss-item.flash { box-shadow: 0 0 0 3px var(--wood-soft), var(--shadow); }
+
+/* 术语详解：定义 + 三节 */
+.gloss-head .gcat { margin-left: auto; font-size: 12px; color: var(--ink-3); background: var(--wood-soft); padding: 2px 9px; border-radius: 20px; }
+.gloss-head .arrow { margin-left: 10px; color: var(--ink-3); font-size: 13px; transition: transform .25s; }
+.gloss-body .gd { font-size: 15px; color: #453c34; margin-bottom: 14px; }
+.gloss-body .gsec { margin-top: 12px; padding-left: 13px; border-left: 3px solid var(--wood-soft); }
+.gloss-body .gsec.warn { border-left-color: #e6c9a8; background: #fdf6ec; border-radius: 0 10px 10px 0; padding: 10px 14px 10px 13px; margin-left: -3px; }
+.gloss-body .gk { display: block; font-size: 12.5px; font-weight: 600; color: var(--wood); letter-spacing: .04em; margin-bottom: 4px; }
+.gloss-body .gsec.warn .gk { color: #b07a45; }
+.gloss-body .gv { font-size: 14.3px; line-height: 1.9; }
+.gloss-body .grel { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line); font-size: 13px; color: var(--ink-3); }
+.gloss-body .grel-btn { font-size: 12.5px; padding: 3px 11px; margin: 0 3px; border-radius: 20px; background: var(--wood-soft); color: #6b5a45; cursor: pointer; transition: .2s; }
+.gloss-body .grel-btn:hover { background: #e8d9c4; color: #4a3d2e; }
+
+/* ---------- 自由摆棋 ---------- */
+.tool-panel { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+.tool-panel button {
+  padding: 8px 15px; border-radius: 999px; font-size: 13.5px;
+  background: var(--card); border: 1px solid var(--line-2); color: var(--ink-2);
+  transition: all .2s;
+}
+.tool-panel button:hover { border-color: var(--accent); color: var(--accent-2); background: var(--accent-soft); }
+.tool-panel button.on { background: var(--accent); border-color: var(--accent); color: #fffdf9; }
+.info-line {
+  margin-top: 14px; padding: 14px 18px; background: var(--card);
+  border: 1px solid var(--line); border-radius: var(--radius-s);
+  font-size: 14px; min-height: 48px; color: var(--ink-2);
+}
+
+/* ---------- 棋盘重的页面：容器放宽 ---------- */
+main.wide { max-width: 1360px; }
+
+/* ---------- 练习题：棋盘吸附 + 讲解并排 ----------
+   为什么：讲解原来排在棋盘下面，往下读「完整推理」时棋盘滚出视野，
+   就看不到答案点落在哪一格了。改成左吸附右并排，读到哪棋盘都在。
+
+   2026-09-28 用户报了两个问题后定稿：
+   ① 「中盘题（选择题）的棋盘居中了，讲解被挤到下面」—— 因为 choice 题原先
+      没有走两栏。现在 choice 也走两栏（见 app.js）。
+   ② 「其他题棋盘太小」—— **原值是 660px**，我改成 1fr 又叠 max-width:520px，
+      把棋盘压到 396px。用户明确指出「以前棋盘是很大的，好像六百多px」。
+   定稿：棋盘列恢复 minmax(0, 660px)（**沿用原值**，不要动），
+   讲解列 = 1fr（吃掉**全部**剩余宽度）。窄屏（≤980px）才上下堆叠。 */
+.prob-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 660px) minmax(0, 1fr);
+  gap: 26px; align-items: start; margin-top: 20px;
+}
+.prob-board { position: sticky; top: calc(var(--header-h, 76px) + 10px); }
+.prob-notes { min-width: 0; max-width: none; }
+.prob-notes .feedback { margin-top: 0; }
+@media (max-width: 980px) {
+  .prob-layout { grid-template-columns: 1fr; gap: 18px; }
+  .prob-board { position: static; }
+}
+
+/* ---------- 讲解 ↔ 棋盘联动 ----------
+   为什么：详解里写「C19」，初学者看不出是哪一格。解决办法是把讲解里的坐标
+   做成可点的小标签，点一下棋盘上就亮出那一点；「完整推理」每条也能整条点亮。 */
+.link-tip { margin: 0 0 12px; line-height: 1.6; }
+
+.coord-chip {
+  display: inline-block; padding: 0 7px; margin: 0 2px;
+  border-radius: 999px; border: 1px solid var(--line-2);
+  background: var(--wood-soft); color: var(--wood);
+  font-size: 12px; font-weight: 600; line-height: 1.65;
+  font-variant-numeric: tabular-nums; vertical-align: 1px;
+  transition: all .18s ease;
+}
+.coord-chip:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-2); transform: translateY(-1px); }
+.coord-chip.on { background: var(--accent); border-color: var(--accent); color: #fffdf9; box-shadow: 0 2px 8px rgba(176,137,104,0.28); }
+
+.explain-block ol.sol-list { list-style: none; padding-left: 0; margin: 10px 0 0; }
+.explain-block .sol-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 8px 12px; margin: 3px 0;
+  border-radius: var(--radius-xs); border-left: 3px solid transparent;
+  cursor: pointer; transition: background .18s ease, border-color .18s ease;
+}
+.explain-block .sol-row:hover { background: var(--wood-soft); }
+.explain-block .sol-row.on { background: var(--wood-soft); border-left-color: var(--accent); }
+.sol-n {
+  flex: 0 0 22px; height: 22px; margin-top: 4px;
+  border-radius: 50%; background: var(--bg-2); color: var(--ink-3);
+  font-size: 12px; font-weight: 600; line-height: 22px; text-align: center;
+  transition: all .18s ease;
+}
+.explain-block .sol-row.on .sol-n { background: var(--accent); color: #fffdf9; }
+.sol-t { flex: 1; min-width: 0; font-size: 14.5px; }
+.sol-t p { margin: 0 0 6px; }
+.sol-t p:last-child { margin-bottom: 0; }
+
+/* ---------- 学习布局：棋盘吸附 + 讲解并排 ---------- */
+.study-layout {
+  display: grid; grid-template-columns: minmax(0, 680px) minmax(0, 1fr);
+  gap: 28px; align-items: start; margin: 20px 0;
+}
+.study-board { position: sticky; top: calc(var(--header-h, 76px) + 10px); }
+.study-notes { min-width: 0; }
+.study-notes .explain-block { margin-top: 0; }
+
+.km-board { display: flex; gap: 18px; align-items: flex-start; margin: 16px 0 8px; }
+.km-board .canvas-wrap {
+  flex: 0 0 268px; max-width: 268px;
+  background: var(--wood-soft); border: 1px solid var(--line);
+  border-radius: var(--radius-s); padding: 9px;
+}
+.km-board .canvas-wrap canvas { display: block; width: 100%; border-radius: 10px; }
+.km-board .km-text { flex: 1; min-width: 0; }
+.km-board .km-text p:first-child { margin-top: 0; }
+
+@media (max-width: 880px) {
+  .study-layout { grid-template-columns: 1fr; gap: 18px; }
+  .study-board { position: static; }
+}
+@media (max-width: 640px) {
+  .km-board { flex-direction: column; gap: 14px; }
+  .km-board .canvas-wrap { flex: none; max-width: 100%; width: 100%; }
+}
+
+/* ---------- 移动端 ---------- */
+@media (max-width: 720px) {
+  main { padding: 20px 15px 56px; }
+  .topbar-in { padding: 10px 15px; gap: 12px; }
+  .nav-tip { display: none; }
+  .card { padding: 20px 19px; }
+  h1 { font-size: 22px; }
+  .hero h1 { font-size: 25px; }
+  .board-holder { max-width: 100%; }
+  .lesson-item .d { display: none; }
+  .footer-in { flex-direction: column; gap: 5px; }
+}
+
+/* ---------- 名局：分阶段概述 ---------- */
+.phase-row { display: flex; gap: 16px; padding: 12px 0; border-bottom: 1px dashed var(--line); }
+.phase-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.phase-row:first-child { padding-top: 0; }
+.phase-name {
+  flex: 0 0 88px; font-weight: 600; color: var(--accent-2);
+  font-size: 14.5px; padding-top: 2px;
+}
+.phase-body { flex: 1; min-width: 0; }
+.phase-body p { margin: 0; font-size: 14.5px; line-height: 1.8; color: var(--ink-2); }
+
+@media (max-width: 640px) {
+  .phase-row { flex-direction: column; gap: 4px; }
+  .phase-name { flex: none; }
+}
+
+/* ---------- 摆棋：路数切换 ---------- */
+.size-bar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 14px; padding: 0 4px;
+}
+.size-btn {
+  font: inherit; font-size: 13.5px; cursor: pointer;
+  padding: 5px 13px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--card);
+  color: var(--ink-2); transition: all .15s;
+}
+.size-btn:hover { border-color: var(--accent); color: var(--accent-2); }
+.size-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- 定式库 / 死活形图库 ---------- */
+.pill.era { font-size: 12px; }
+.pill.era.era-ai { background: var(--accent-soft); color: var(--accent-2); border-color: var(--accent); }
+.pill.era.era-ancient { background: var(--wood-soft); color: var(--wood); }
+.pill.era.era-modern { background: var(--card); color: var(--ink-2); }
+.entry .t .pill { margin-left: 6px; font-size: 11.5px; padding: 1px 8px; vertical-align: 1px; }
+.pill.ok { background: #e9f2e4; color: #4a6b34; border-color: #b9d3a8; }
+
+/* ---------- 实战自测 ---------- */
+.sc-summary { margin: 18px 0; font-size: 15px; line-height: 1.9; color: var(--accent-2); }
+.sc-score-n { font-size: 22px; font-weight: 600; color: #453c34; letter-spacing: .5px; }
+
+/* 标签：好棋 / 常见错误 / 值得注意 */
+.sc-tag {
+  display: inline-block; padding: 2px 10px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  background: var(--bg-2); color: var(--ink-3); margin-right: 6px;
+}
+.sc-tag.good { background: #eef4ea; color: #5d7a52; }
+.sc-tag.bad { background: #fdf1ed; color: #b5705c; }
+.sc-tag.info { background: var(--warn-soft); color: #a5773f; }
+.sc-tag.dull { background: var(--bg-2); color: var(--ink-3); font-weight: 400; }
+
+/* 逐手点评列表 */
+.sc-moves { display: grid; gap: 9px; }
+.sc-move {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius-s); overflow: hidden; box-shadow: var(--shadow);
+  transition: border-color .2s ease;
+}
+.sc-move.open { border-color: var(--line-2); }
+.sc-move-head {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 12px 18px; text-align: left; transition: background .2s ease;
+}
+.sc-move-head:hover { background: var(--wood-soft); }
+.sc-no { flex: none; font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.sc-side {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; color: #fffdf9;
+  background: radial-gradient(circle at 34% 30%, #6b6058, #2e2a26);
+}
+.sc-side.w {
+  background: radial-gradient(circle at 34% 30%, #fffefb, #ece5d4);
+  color: #7d7166; border: 1px solid var(--line-2);
+}
+.sc-one {
+  flex: 1; min-width: 0; font-size: 13.5px; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sc-arrow { flex: none; color: var(--ink-3); transition: transform .25s ease; }
+.sc-move.open .sc-arrow { transform: rotate(90deg); }
+.sc-move-body { display: none; padding: 2px 18px 16px; }
+.sc-move.open .sc-move-body { display: block; }
+
+/* 一条点评的展开内容 */
+.sc-find { margin-top: 12px; padding: 13px 16px; border-radius: var(--radius-xs); border: 1px solid var(--line); }
+.sc-find.good { background: #f4f8f2; border-color: #dfe9da; }
+.sc-find.bad { background: #fdf4f0; border-color: #f2ddd4; }
+.sc-find.info { background: var(--warn-soft); border-color: #f0e0c9; }
+.sc-find-head { display: flex; align-items: center; margin-bottom: 6px; }
+.sc-find-head b { font-size: 14.5px; color: #453c34; }
+.sc-find-text { margin: 0 0 4px; font-size: 14.5px; line-height: 1.85; color: var(--ink); }
+
+/* 自查表 */
+.sc-checks { display: grid; gap: 10px; }
+.sc-check {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius-s); overflow: hidden; box-shadow: var(--shadow);
+}
+.sc-check.on { border-color: var(--accent); background: #fffdfa; }
+.sc-check-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; cursor: pointer; }
+.sc-check-head:hover { background: var(--wood-soft); }
+.sc-tick {
+  flex: none; width: 22px; height: 22px; border-radius: 7px;
+  border: 1.5px solid var(--line-2); background: var(--card);
+  color: #fffdf9; font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .2s ease;
+}
+.sc-tick:hover { border-color: var(--accent); }
+.sc-tick.on { background: var(--accent); border-color: var(--accent); }
+.sc-check-name { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 500; color: #453c34; }
+.sc-check .sc-arrow { color: var(--ink-3); transition: transform .25s ease; }
+.sc-check.open .sc-arrow { transform: rotate(90deg); }
+.sc-check-body { display: none; padding: 0 18px 16px 52px; }
+.sc-check.open .sc-check-body { display: block; }
+
+/* 成绩单 */
+.sc-score-list { display: grid; gap: 12px; }
+.sc-score-item {
+  background: var(--card); border: 1px solid var(--line);
+  border-left: 3px solid var(--line-2);
+  border-radius: var(--radius-s); padding: 15px 19px; box-shadow: var(--shadow);
+}
+.sc-score-item.ok { border-left-color: var(--good); }
+.sc-score-item.no { border-left-color: var(--bad); }
+.sc-score-ask { margin-top: 2px; line-height: 1.7; }
+
+@media (max-width: 640px) {
+  .sc-one { display: none; }
+  .sc-check-body { padding-left: 18px; }
+}
+
+/* ===== 将棋板块 ===== */
+/* 规则页的小图解：一排放不下就换行，每张图是一个 9×9 小盘 + 说明 */
+.shogi-figrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 18px;
+  margin: 14px 0 4px;
+}
+.shogi-figbox {
+  margin: 0;
+  width: 280px;
+}
+.shogi-figbox figcaption {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #6b6055;
+}
+.shogi-figbox figcaption b { color: #3a332c; }
+/* 小盘上盘边号要小一号，免得挤掉格子 */
+.shogi-figbox canvas { display: block; width: 100%; }
+#shogi-holder canvas { border-radius: 4px; }
+
+/* ===== 名局「原注」区块（引用别人的逐手批注）=====
+   设计原则：与「本典讲解」在视觉上明确分开 —— 讲解是主体（白底、木色标签），
+   原注是旁批（暖灰底、左侧竖线、小一号字），一眼能看出哪段是谁说的。 */
+.ext-banner {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--accent-soft);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-xs);
+  font-size: 13.5px;
+  color: var(--accent-2);
+}
+.ext-note {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: var(--bg-2);
+  border-left: 3px solid var(--line-2);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+.ext-note-hd {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-bottom: 4px;
+  letter-spacing: 0.3px;
+}
+.ext-note p { margin: 4px 0; }
+.ext-full { margin-top: 6px; }
+.ext-full > summary {
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--accent-2);
+  padding: 6px 0;
+  user-select: none;
+}
+.ext-full > summary:hover { color: var(--accent); }
+.ext-row {
+  display: flex;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+.ext-n {
+  flex: 0 0 62px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  padding-top: 1px;
+}
+.ext-t { flex: 1; font-size: 14px; line-height: 1.75; color: var(--ink-2); }
+.ext-t p { margin: 3px 0; }

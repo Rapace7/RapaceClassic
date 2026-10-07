@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f7f5f1">
+<title>玄清棋典 · 从零开始学围棋</title>
+<!-- 图标：木色底 + 棋盘格 + 一黑一白两枚子。
+     源文件与生成脚本见 assets/icon.svg 与 tools/make_icon.py；
+     打包时 build.py 会把这张 PNG 内联成 data URI（单文件不能依赖外部图片）。 -->
+<link rel="icon" type="image/png" href="favicon-32.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <!-- LOGO：线装古书（封面 + 左侧装订线 + 书名签条 + 露出的书页）
+           原来画的是「黑白两枚棋子」——那是围棋专用的图案；
+           现在一部棋典同时收围棋与象棋，用「书」更贴切。 -->
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="6.2" y="3.3" width="14.4" height="17.4" rx="1.4" fill="#f7f0e2" stroke="#d9c9ad" stroke-width="0.7"/>
+        <rect x="3.4" y="2.4" width="15.2" height="19.2" rx="1.7" fill="#8a6a4f"/>
+        <g stroke="#f2e5d0" stroke-width="1.15" stroke-linecap="round">
+          <line x1="5" y1="6.2" x2="7.7" y2="6.2"/>
+          <line x1="5" y1="9.3" x2="7.7" y2="9.3"/>
+          <line x1="5" y1="12.4" x2="7.7" y2="12.4"/>
+          <line x1="5" y1="15.5" x2="7.7" y2="15.5"/>
+        </g>
+        <rect x="9.4" y="6" width="7" height="8.8" rx="0.8" fill="#f4ead6" opacity="0.94"/>
+        <path d="M11 9.4h3.8M11 11.4h3.8" stroke="#c9b18d" stroke-width="0.75" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-name">玄清棋典</span>
+    </div>
+    <!-- 板块切换紧挨 LOGO 放在左上角，导航按钮独立在右边 ——
+         左边：「我是谁 / 现在在哪个板块」，右边：「板块里有哪些页面」。
+         这样分组最省横向空间（不用在中间再塞分隔与留白），按钮保持原本大小。 -->
+    <div class="game-switch" id="game-switch">
+      <button data-game="go" class="on">围棋</button>
+      <button data-game="xq">象棋</button>
+        <button data-game="chess">国际象棋</button>
+        <button data-game="shogi">将棋</button>
+      </div>
+    <nav class="nav" id="nav">
+      <span class="nav-set" data-set="go">
+        <button data-view="home">首页</button>
+        <button data-view="lessons">基础课</button>
+        <button data-view="training">训练法</button>
+        <button data-view="history">思维史</button>
+        <button data-view="games">名局</button>
+        <button data-view="problems">练习</button>
+        <button data-view="selfcheck">实战自测</button>
+        <button data-view="glossary">词典</button>
+        <button data-view="joseki">定式</button>
+        <button data-view="shapes">死活形</button>
+        <button data-view="board">摆棋</button>
+      </span>
+      <span class="nav-set" data-set="xq" hidden>
+        <button data-view="xq">首页</button>
+        <button data-view="xq/lesson">入门</button>
+        <button data-view="xq/mates">杀法</button>
+        <button data-view="xq/endgame">残局</button>
+        <button data-view="xq/opening">开局</button>
+        <button data-view="xq/games">名局</button>
+        <button data-view="xq/selfcheck">自测</button>
+        <button data-view="xq/terms">词典</button>
+        <button data-view="xq/board">摆棋</button>
+        <button data-view="xq/rules">规则</button>
+      </span>
+      <!-- 国际象棋：**先预留板块**（用户要求），导航按「国际象棋该有的样子」一次摆齐，
+           内容留待后续施工。现在点任意一项都会给统一的「规划中」说明。 -->
+      <span class="nav-set" data-set="chess" hidden>
+        <button data-view="chess">首页</button>
+        <button data-view="chess/lesson">入门</button>
+        <button data-view="chess/tactics">战术</button>
+        <button data-view="chess/endgame">残局</button>
+        <button data-view="chess/opening">开局</button>
+        <button data-view="chess/games">名局</button>
+        <button data-view="chess/terms">词典</button>
+        <button data-view="chess/selfcheck">自测</button>
+        <button data-view="chess/board">摆棋</button>
+        <button data-view="chess/rules">规则</button>
+      </span>
+      <!-- 将棋（日本将棋）：**先预留板块**（用户要求），导航按将棋自己的叫法摆齐 ——
+           定迹（相当于定式）、诘将棋（相当于死活题）、手筋都是将棋界通用的词。
+           内容留待后续施工，现在点任意一项都给统一的「规划中」说明。 -->
+      <span class="nav-set" data-set="shogi" hidden>
+        <button data-view="shogi">首页</button>
+        <button data-view="shogi/lesson">入门</button>
+        <button data-view="shogi/joseki">定迹</button>
+        <button data-view="shogi/tsume">诘将棋</button>
+        <button data-view="shogi/tesuji">手筋</button>
+        <button data-view="shogi/games">名局</button>
+        <button data-view="shogi/terms">词典</button>
+        <button data-view="shogi/selfcheck">自测</button>
+        <button data-view="shogi/board">摆棋</button>
+        <button data-view="shogi/rules">规则</button>
+      </span>
+    </nav>
+    <!-- 这里原本还有一个「完全离线可用」的提示，已挪到首页正文（顶栏只留要点）。 -->
+  </div>
+</header>
+
+<main id="app"></main>
+
+<footer class="footer">
+  <div class="footer-in">
+    <span>玄清棋典 · 全部内容离线运行，不联网、不需要安装任何东西</span>
+    <span class="footer-note">规则引擎与题库答案由程序自动验证</span>
+  </div>
+</footer>
+
+<script src="engine.js"></script>
+<script src="xq-engine.js"></script>
+<script src="xq-problems.js"></script>
+<script src="xq-problems2.js"></script>
+<script src="xq-mainline.js"></script>
+<script src="xq-terms.js"></script>
+<script src="xq-terms-ui.js"></script>
+<script src="xq-lessons.js"></script>
+<script src="xq-lessons-ui.js"></script>
+<script src="xq-mates.js"></script>
+<script src="xq-mates-ui.js"></script>
+<script src="xq-opening.js"></script>
+<script src="xq-opening-ui.js"></script>
+<script src="xq-games-a.js"></script>
+<script src="xq-games-b.js"></script>
+<script src="xq-games-c.js"></script>
+<script src="xq-games-ui.js"></script>
+<script src="xq-review.js"></script>
+<script src="xq-selfcheck.js"></script>
+<script src="xq-selfcheck-ui.js"></script>
+<script src="xq-board.js"></script>
+<script src="xq-app.js"></script>
+<script src="board.js"></script>
+<script src="lessons.js"></script>
+<script src="midgame.js"></script>
+<script src="training.js"></script>
+<script src="history.js"></script>
+<script src="games.js"></script>
+<script src="games2017.js"></script>
+<script src="games2017b.js"></script>
+<script src="games2026.js"></script>
+<script src="games1933.js"></script>
+<script src="games1739.js"></script>
+<script src="games_extra.js"></script>
+<script src="games_kejie.js"></script>
+<script src="games_hist.js"></script>
+<script src="problems.js"></script>
+<script src="problems_ts.js"></script>
+<script src="problems_ts2.js"></script>
+<script src="problems_ld.js"></script>
+<script src="problems_ld2.js"></script>
+<script src="problems_ly.js"></script>
+<script src="problems_gj.js"></script>
+<script src="problems_ly2.js"></script>
+<script src="problems_gj2.js"></script>
+<script src="glossary.js"></script>
+<script src="glossary-more.js"></script>
+<script src="glossary-figs.js"></script>
+<script src="glossary-ui.js"></script>
+<script src="joseki.js"></script>
+<script src="shapes.js"></script>
+<script src="selfcheck.js"></script>
+<!-- 将棋板块：引擎 → 棋盘 → 应用层，顺序不能反 -->
+<script src="chess-engine.js"></script>
+<script src="chess-board.js"></script>
+<script src="chess-terms.js"></script>
+<script src="chess-terms2.js"></script>
+<script src="chess-lessons.js"></script>
+<script src="chess-openings.js"></script>
+<script src="chess-endgame.js"></script>
+<script src="chess-mates.js"></script>
+<script src="chess-games.js"></script>
+<script src="chess-review.js"></script>
+<script src="chess-selfcheck.js"></script>
+<script src="chess-app.js"></script>
+<script src="shogi-engine.js"></script>
+<script src="shogi-board.js"></script>
+<script src="shogi-tsume.js"></script>
+<script src="shogi-games.js"></script>
+<script src="shogi-joseki.js"></script>
+<script src="shogi-next.js"></script>
+<script src="shogi-terms.js"></script>
+<script src="shogi-terms2.js"></script>
+<script src="shogi-selfcheck.js"></script>
+<script src="shogi-lessons.js"></script>
+<script src="shogi-review.js"></script>
+<script src="shogi-app.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
