@@ -1,13 +1,13 @@
-# 玄清棋典 · XuanQing Classic
+# 玄清棋典 · RapaceClassic
 
 ## ⬇️ 下载
 
-**[Releases 页面](https://github.com/Rapace7/RapaceClassic/releases) → 拉到底 → `XuanQing-Qidian.html`**
+**[Releases 页面](https://github.com/Rapace7/RapaceClassic/releases) → 拉到底 → `RapaceClassic.html`**
 
 下完**双击**，浏览器打开就行。约 7.7 MB。
 
-> 文件名是英文的（内容全是中文）—— GitHub 会把中文附件名显示成 `default.html`，
-> 所以这里用了英文名，避免下到一个看不出是什么的文件。
+> 文件名和仓库名一致。内容全是中文，只是文件名用了英文 ——
+> GitHub 会把中文附件名显示成 `default.html`。
 
 **不会用 GitHub 也能拿**：打开上面那个链接 → 往下滑找到 **v1.0** →
 下面 **Assets** 区块点那个文件 → 下载。不需要注册、不需要登录。
