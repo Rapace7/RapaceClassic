@@ -4,8 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f7f5f1">
+<!-- ★ 版本号的唯一出处。build.py 会把这里读出来：
+     1) 打进产物头部的注释戳（右键查看源码就能分辨新旧文件）；
+     2) 与页脚那行文字里的版本比对，不一致就**拒绝打包** ——
+     以前这份文件没有任何版本痕迹，新旧产物打开长得一模一样，只能靠哈希区分，
+     换附件时极易搞混（2026-10-14 首相拍板加版本戳并升 v1.1）。 -->
+<meta name="app-version" content="v1.1">
 <title>玄清棋典 · 从零开始学围棋</title>
-<!-- 由 build.py 打包生成：79 个文件内联 -->
+<!-- 玄清棋典 v1.1 · 由 build.py 打包生成：79 个文件内联 -->
 <!-- 图标：木色底 + 棋盘格 + 一黑一白两枚子。
      源文件与生成脚本见 assets/icon.svg 与 tools/make_icon.py；
      打包时 build.py 会把这张 PNG 内联成 data URI（单文件不能依赖外部图片）。 -->
@@ -586,6 +592,18 @@ main.wide { max-width: 1360px; }
   .board-holder { max-width: 100%; }
   .lesson-item .d { display: none; }
   .footer-in { flex-direction: column; gap: 5px; }
+
+  /* ★ 2026-10-14 修：手机上导航一行根本摆不下 —— 围棋 11 个按钮实测 496px，
+   *   比 iPhone 的 390px 视口宽出 106px；因为 .nav 是 nowrap + overflow:visible，
+   *   超出去的部分把**整份文档**顶成 814px 宽，于是每一页都要横向拖动
+   *   （围棋溢出 424px、象棋/国际象棋 316px、将棋 328px）。
+   *   作者的两条禁忌都保留：不换行（sticky 顶栏会被顶高、挤占棋盘），不给可见滚动条。
+   *   做法是把它变成「可滑动的一条」：min-width:0 让它能在 flex 里被压缩，
+   *   overflow-x:auto 承接滑动，滚动条藏起来。 */
+  .topbar-in { gap: 10px; }
+  .nav { min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav button { flex: none; }
 }
 
 /* ---------- 名局：分阶段概述 ---------- */
@@ -897,7 +915,7 @@ main.wide { max-width: 1360px; }
 
 <footer class="footer">
   <div class="footer-in">
-    <span>玄清棋典 · 全部内容离线运行，不联网、不需要安装任何东西</span>
+    <span>玄清棋典 v1.1 · 全部内容离线运行，不联网、不需要安装任何东西</span>
     <span class="footer-note">规则引擎与题库答案由程序自动验证</span>
   </div>
 </footer>
@@ -1009,7 +1027,11 @@ main.wide { max-width: 1360px; }
     }
 
     this.captured[color] += captured.length;
-    var rec = { i: i, color: color, captured: captured, koBefore: koBefore, koAfter: this.ko, pass: false };
+    /* passBefore：撤销时要一并还原「连续虚着计数」。以前 undo 不还原它，
+       于是「虚着一手 → 落一子 → 悔掉这一子」会把 passCount 从 1 抹成 0，
+       isOver() 跟着判错。围棋侧目前没有代码读 passCount/isOver，但引擎是共享的，
+       留着这个坑等着踩不如现在就填上。 */
+    var rec = { i: i, color: color, captured: captured, koBefore: koBefore, koAfter: this.ko, pass: false, passBefore: this.passCount };
     this.moves.push(rec);
     this.passCount = 0;
     this.toMove = opp;
@@ -1021,7 +1043,7 @@ main.wide { max-width: 1360px; }
     if (rec.pass) {
       this.ko = rec.koBefore;
       this.moves.pop();
-      this.passCount = Math.max(0, this.passCount - 1);
+      this.passCount = (typeof rec.passBefore === 'number') ? rec.passBefore : Math.max(0, this.passCount - 1);
       this.toMove = rec.color;
       return;
     }
@@ -1030,6 +1052,7 @@ main.wide { max-width: 1360px; }
     this.captured[rec.color] -= rec.captured.length;
     this.ko = rec.koBefore;
     this.moves.pop();
+    this.passCount = (typeof rec.passBefore === 'number') ? rec.passBefore : Math.max(0, this.passCount - 1);
     this.toMove = rec.color;
   };
 
@@ -1048,7 +1071,7 @@ main.wide { max-width: 1360px; }
   };
 
   Board.prototype.pass = function (color) {
-    var rec = { pass: true, color: color, captured: [], koBefore: this.ko, koAfter: -1 };
+    var rec = { pass: true, color: color, captured: [], koBefore: this.ko, koAfter: -1, passBefore: this.passCount };
     this.ko = -1;
     this.moves.push(rec);
     this.passCount++;
@@ -1059,7 +1082,14 @@ main.wide { max-width: 1360px; }
   Board.prototype.isOver = function () { return this.passCount >= 2; };
 
   /* 判断空点是否像「真眼」（己方颜色 color 的眼）。
-     用于 AI 不填自己的眼，也用于教学演示。 */
+     用于 AI 不填自己的眼，也用于教学演示。
+
+     教科书画法：四个正交邻点（越界算己方）都归己方，再看**斜角上敌方子的个数** ——
+       · 中路点（4 个斜角都在盘内）：容忍 1 个敌方斜角，两个及以上才是假眼；
+       · 边路 / 角点（斜角只有 1~3 个在盘内）：一个敌方斜角都不许有。
+     ★ 这里数的是「敌方占的斜角」，不是「己方占的斜角」—— 斜角空着不影响真眼。
+       旧写法用 need = inBoard>=4 ? 3 : 1 数己方斜角，两头都错：
+       边上漏判假眼（A16 斜角有一个是白的也算真眼），中路又把真眼误杀（斜角空两个就判假）。 */
   Board.prototype.isTrueEye = function (i, color) {
     if (this.g[i] !== EMPTY) return false;
     var s = this.size, p = this.xy(i), x = p.x, y = p.y;
@@ -1068,17 +1098,15 @@ main.wide { max-width: 1360px; }
       return this.g[yy * s + xx] === color;
     }.bind(this);
     if (!own(x - 1, y) || !own(x + 1, y) || !own(x, y - 1) || !own(x, y + 1)) return false;
-    var dx = [-1, 1, -1, 1], dy = [-1, -1, 1, 1], inBoard = 0, good = 0, k, xx, yy;
+    var dx = [-1, 1, -1, 1], dy = [-1, -1, 1, 1], opp = other(color);
+    var inBoard = 0, foe = 0, k, xx, yy;
     for (k = 0; k < 4; k++) {
       xx = x + dx[k]; yy = y + dy[k];
       if (xx < 0 || yy < 0 || xx >= s || yy >= s) continue;
       inBoard++;
-      if (this.g[yy * s + xx] === color) good++;
+      if (this.g[yy * s + xx] === opp) foe++;
     }
-    if (inBoard < 1) return false;
-    /* 中间点（4 个对角）允许 1 个不是自己；边、角上要求更严 */
-    var need = inBoard >= 4 ? 3 : 1;
-    return good >= need;
+    return foe <= (inBoard >= 4 ? 1 : 0);
   };
 
   /* 面积法数子（中国规则）。komi 为黑贴目数 */
@@ -1117,6 +1145,9 @@ main.wide { max-width: 1360px; }
     b.captured = this.captured.slice();
     b.toMove = this.toMove;
     b.passCount = this.passCount;
+    /* 着手栈也要带上：以前不带，副本上 undo() 会去 pop 一个空数组，
+       与原件的 rec 对不上号（isLegal 的试算-撤销路径正依赖这一点）。 */
+    b.moves = this.moves.slice();
     return b;
   };
 
@@ -1182,7 +1213,10 @@ main.wide { max-width: 1360px; }
  *   bd.idx(x, y) / bd.xy(i)   坐标换算：x 从 0 起左→右，y 从 0 起上→下，(0,0)=棋盘左上角
  *   bd.play(from, to, color)  走子；返回 {ok:true, rec, captured} 或 {ok:false, reason}
  *                             rec 交给 bd.undo(rec) 可完全回滚
- *   bd.setup([[x,y,color,type], ...])  color 用 'r'/'b'，type 用上面的字母
+ *   bd.setup([[x,y,color,type], ...], toMove)  color 用 'r'/'b'，type 用上面的字母
+ *                             toMove 可选：'r'/'b'（或 XQ.RED/XQ.BLACK）指定摆完轮到谁，
+ *                             省略就是红先。题库里有黑先题，界面必须把它传进来 ——
+ *                             事后再改 bd.toMove 是「所有调用方的义务」，漏一处就静默出错。
  *   XQ.toLabel(i)             转成坐标名
  *
  * ── play 的签名说明（与围棋 play(i, color) 的差异）────────────────
@@ -1443,13 +1477,20 @@ main.wide { max-width: 1360px; }
     return this.isMate(color) && !this.isChecked(color);
   };
 
-  /* 摆局面：[[x, y, color, type], ...]，color 用 'r'/'b'（也接受 1/2） */
-  Board.prototype.setup = function (list) {
+  /* 摆局面：[[x, y, color, type], ...]，color 用 'r'/'b'（也接受 1/2）
+     第二个参数 toMove 可选：'r'/'b'（也接受 XQ.RED/XQ.BLACK），指定摆完之后轮到谁。
+     为什么把先手方做成 setup 的参数，而不是让调用方 setup 完自己补一句 toMove=BLACK：
+       setup 会清空 moves 并把 toMove 复位成 RED，「补一句」是所有调用方的义务 ——
+       漏掉一处就是一次静默的错误（残局题库 113 道里有 31 道黑先，页面全部摆成红先，
+       用户点黑子被当成「还没轮到你」，题根本做不了）。参数比事后赋值更难漏。
+     省略 / 传 'r' 时仍与旧行为逐字一致：红先。 */
+  Board.prototype.setup = function (list, toMove) {
     this.g = new Int8Array(N);
     this.t = new Array(N);
     for (var i = 0; i < N; i++) this.t[i] = null;
     this.moves = [];
-    this.toMove = RED;
+    /* 只认明确的「黑」，其余（含 undefined / null / 'r'）一律红先 —— 老调用点不用改也不会变 */
+    this.toMove = (toMove === BLACK || toMove === 'b' || toMove === 'B') ? BLACK : RED;
     for (var k = 0; k < (list || []).length; k++) {
       var it = list[k];
       if (!it || it.length < 4) continue;
@@ -18892,7 +18933,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
  *   window.XQBoard          xq-board.js      画棋盘（必须有）
  *   window.XQReview         src/xq-review.js  逐手点评引擎（**必须有**）
  *   window.XQ_SELFCHECK     xq-selfcheck.js  常见失误自查表（**必须有**）
- *   window.XQ_PROBLEMS      xq-problems.js  31 道残局（只有「随机测验」需要）
+ *   window.XQ_PROBLEMS      xq-problems.js + xq-problems2.js 合并后的 113 道残局/杀法（只有「随机测验」需要）
  *
  * ⚠️ 接线时注意：逐手点评引擎在 src/xq-review.js，是**浏览器与 Node 通用**的那个文件，
  *    index.html 必须在 xq-selfcheck-ui.js 之前把它引进来：
@@ -18906,7 +18947,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
  *      送子 / 漏应 / 错过杀棋 / 放对方成杀 / 兑子亏 / 开局毛病 六类都当面说清，
  *      没问题的手也会给一句中性说明（不沉默）。摆完给一份按类型统计的总结。
  *   2) 常见失误自查表：19 条象棋毛病，一条条对着看，可勾选（只存这次打开，刷新即清空）。
- *   3) 随机测验：从 31 道残局里随机抽 5 题，走一手定对错，最后给一张本次成绩单。
+ *   3) 随机测验：从题库 113 道里随机抽 5 题（红先黑先都会抽到），走一手定对错，最后给一张本次成绩单。
  *
  * ── 说明（诚实过头也好过假装）────────────────────────────────
  *   · 逐手点评只做**规则层**的判断，不评论「大局观」「缓手」「棋形」。算不出来的一律不说。
@@ -18939,7 +18980,8 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
   /* 自查表的正文用 **这样** 标重点（xq-selfcheck.js 里就是这么写的）。
      先转义、再换成 <b>，别让 ** 原样露在页面上。 */
   function md(s) {
-    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+    /* 2026-10-14：配对后兜底剥掉落单的 **（与其他三个 md() 同步） */
+    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*\*/g, '');
   }
 
   function mountBoard(canvas, opts) {
@@ -18972,6 +19014,9 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
   function typeCn(t) { return (global.XQReview && global.XQReview.TYPE_CN && global.XQReview.TYPE_CN[t]) || '子'; }
   function sideName(c) { return c === global.XQ.RED ? '红' : '黑'; }
   function sideCn(c) { return c === global.XQ.RED ? '红方' : '黑方'; }
+  /* 题库的 toMove 是字符 'r'/'b'，引擎里是数字。随机测验抽到的题红先黑先都有
+     （113 道里 31 道黑先），先手方只能问这道题，不能按「默认红先」写死。 */
+  function sideCnOfChar(ch) { return sideCn(ch === 'b' ? global.XQ.BLACK : global.XQ.RED); }
 
   function piecesOf(bd) {
     var out = [], i;
@@ -19351,7 +19396,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
   }
 
   /* ======================================================================
-   * 三、随机测验（从 31 道残局里抽 5 题）
+   * 三、随机测验（从题库 113 道里抽 5 题）
    * ======================================================================
    * 说明：围棋那边的「随机测验」复用的是 app.js 里的 mountProblemAnswer（带提示 / 陷阱 /
    * 多解判定的那一整套）。那个函数是 app.js 闭包里的私有函数，页面里够不着；
@@ -19375,8 +19420,9 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     var list = allProblems();
     var html = '';
     html += '<div class="card" style="margin-bottom:16px">';
+    /* 「全部红先」这句是错的（题库 113 道里 31 道黑先），改成按题面走 */
     html += '<p style="margin:0 0 8px"><b>随机测验：</b>从 ' + list.length +
-      ' 道残局/杀法里随机抽 5 题（全部红先）。每题只要走出<b>正解那一手</b>就算对，' +
+      ' 道残局/杀法里随机抽 5 题（红先、黑先都会抽到，抽到谁先就执谁）。每题只要走出<b>正解那一手</b>就算对，' +
       '走错了不会判死 —— 会告诉你为什么不行，局面退回你走之前，可以重试或者直接看答案。' +
       '做完给一张本次成绩单，只有这次的结果，不累计、不排名、不存档。</p>';
     html += '</div>';
@@ -19395,6 +19441,8 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     if (quiz.idx >= quiz.list.length) return renderQuizScore(host);
 
     var P = quiz.list[quiz.idx];
+    /* 这一题执先的一方 —— 文案与棋盘朝向都跟着它走，红先题的输出与旧版逐字相同 */
+    var meCn = sideCnOfChar(P.toMove);
     var html = quizHTML();
     html += '<div class="card" style="margin-bottom:14px">';
     html += '<div class="row">' +
@@ -19404,15 +19452,15 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       '<span class="spacer"></span>' +
       '<button class="btn ghost sm" id="xqsc-qnew">换一组题</button></div>';
     html += '<p class="q-ask" style="margin-top:12px">' + esc(P.goal) + '</p>';
-    html += '<p class="small muted" style="margin:0">点红方的棋子选中，再点目标点 —— 走一手定对错。' +
+    html += '<p class="small muted" style="margin:0">点' + meCn + '的棋子选中，再点目标点 —— 走一手定对错。' +
       '想不出来就先点「给我提示」。</p></div>';
     html += '<div class="prob-layout"><div class="prob-board">';
     html += '<div class="demo-wrap"><div class="board-shell">';
     html += '<div class="board-holder" style="max-width:560px;margin:0 auto">' +
       '<canvas id="xqsc-qcanvas"></canvas></div>';
-    html += '<div class="board-bar"><span class="pill wood" id="xqsc-qturn">轮到红方</span>' +
-      '<span class="small muted" id="xqsc-qtip">点红方的棋子选中，再点目标点走子</span></div>';
-    html += '<div class="board-say" id="xqsc-qsay">红方先行。</div>';
+    html += '<div class="board-bar"><span class="pill wood" id="xqsc-qturn">轮到' + meCn + '</span>' +
+      '<span class="small muted" id="xqsc-qtip">点' + meCn + '的棋子选中，再点目标点走子</span></div>';
+    html += '<div class="board-say" id="xqsc-qsay">' + meCn + '先行。</div>';
     html += '</div></div>';
     html += '<div class="row" style="margin-top:14px">' +
       '<button class="btn ghost" id="xqsc-qhint">给我提示</button>' +
@@ -19423,7 +19471,9 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
 
     var QXQ = global.XQ;
     var bd = new QXQ.Board();
-    bd.setup(P.pieces);
+    /* 连先手一起摆：只传 pieces 时 setup 把 toMove 复位成红，抽到黑先题就变成
+       「点黑子 → 还没轮到你」，五道题里凡是黑先的那几道一律做不了。 */
+    bd.setup(P.pieces, P.toMove);
     var ansSet = {}, i;
     for (i = 0; i < (P.answers || []).length; i++) {
       ansSet[bd.idx(P.answers[i].from[0], P.answers[i].from[1]) + '>' +
@@ -19436,7 +19486,8 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     var solved = false, hintIdx = 0;
 
     var view = mountBoard(el('xqsc-qcanvas'), {
-      side: 'r', interactive: true, onSelect: qSelect, onMove: qMove
+      /* 朝向跟着题面：执黑做题时黑方摆在下方（残局练习页就是这么做的） */
+      side: P.toMove === 'b' ? 'b' : 'r', interactive: true, onSelect: qSelect, onMove: qMove
     });
 
     function qSelect(idx) {
@@ -19458,11 +19509,15 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
             esc(P.traps[k].why) + '</p>';
         }
       }
-      if (P.principle) out += '<p class="small" style="margin:10px 0 0"><b>记住这条：</b>' + esc(P.principle) + '</p>';
+      /* principle（「记住这条」）数据里 82/113 条写了 **重点**，走 esc() 会把裸星号露出来 */
+      if (P.principle) out += '<p class="small" style="margin:10px 0 0"><b>记住这条：</b>' + md(P.principle) + '</p>';
       return out;
     }
 
     function finish(from, to, revealed) {
+      /* 走这一手的一方：bd.toMove 已经翻到守方，取另一侧。写死「红方」会让黑先题
+         做完之后显示「红方 B1-C1：走对了。」—— 颜色与用户刚走的子不符。 */
+      var me = sideCn(QXQ.other(bd.toMove));
       solved = true;
       view.setPieces(piecesOf(bd));
       view.setHints([]);
@@ -19475,7 +19530,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
           return QXQ.toLabel(bd.idx(a.from[0], a.from[1])) + '-' + QXQ.toLabel(bd.idx(a.to[0], a.to[1]));
         }).join(' / ')
       });
-      sayEl.textContent = '红方 ' + mv + (revealed ? '：这就是正解。' : '：走对了。');
+      sayEl.textContent = me + ' ' + mv + (revealed ? '：这就是正解。' : '：走对了。');
       hintBox.innerHTML = '';
       fbBox.innerHTML = '<div class="card" style="margin-top:16px">' + solutionHTML() +
         '<div class="row" style="margin-top:14px"><button class="btn" id="xqsc-qnext">' +
@@ -19496,9 +19551,11 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
         return false;
       }
       if (ansSet[from + '>' + to]) { finish(from, to, false); return true; }
-      /* 走错：不是正解。只说这一手本身的事实（有没有将军），不硬凑「黑方会怎么走」——
-         那要算棋，这儿算不出来就不说。局面退回重来。 */
+      /* 走错：不是正解。只说这一手本身的事实（有没有将军），不硬凑「守方会怎么走」——
+         那要算棋，这儿算不出来就不说。局面退回重来。
+         守方 = 走完这一手之后的轮到方（红先题是黑方，黑先题是红方），文案跟着它走。 */
       var gaveCheck = bd.isChecked(bd.toMove);
+      var foeCn = sideCn(bd.toMove);
       bd.undo(r.rec);
       view.setPieces(piecesOf(bd));
       view.setHints([]);
@@ -19506,8 +19563,8 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
         '」不是正解 —— 局面已退回你走之前，可以换个着法再试。';
       fbBox.innerHTML = '<div class="feedback no"><div class="head">这一手不行</div>' +
         '<p>你走的是「' + esc(QXQ.toLabel(from) + '-' + QXQ.toLabel(to)) + '」。' +
-        (gaveCheck ? '这一手确实将军了，但黑方有解 —— 杀棋的<b>次序</b>不对。'
-                   : '这一手没有将军，黑方就缓过手来了。') +
+        (gaveCheck ? '这一手确实将军了，但' + foeCn + '有解 —— 杀棋的<b>次序</b>不对。'
+                   : '这一手没有将军，' + foeCn + '就缓过手来了。') +
         '杀棋讲次序：先封退路，再动手，中间不给对方喘气的机会。</p>' +
         '<p class="small muted" style="margin-bottom:0">想不出来就点「给我提示」，提示一条一条给。</p></div>';
       return false;
@@ -19557,7 +19614,8 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       html += '<div class="small muted sc-score-ask">' + esc(P.goal) + '</div>';
       html += '<div class="small" style="margin-top:4px">你走的：' + esc(r.mv) +
         '　正解：<b>' + esc(r.ans) + '</b></div>';
-      if (P.principle) html += '<div class="small muted" style="margin-top:4px">原因：' + esc(P.principle) + '</div>';
+      /* 成绩单上的「原因」就是 principle，同样含 **重点**（与上面 solutionHTML 里同一字段） */
+      if (P.principle) html += '<div class="small muted" style="margin-top:4px">原因：' + md(P.principle) + '</div>';
       html += '</div>';
     }
     html += '</div>';
@@ -20172,6 +20230,21 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       });
   }
 
+  /* 讲解类散文（这里只有残局题的 principle）用 **这样** 标重点：先 esc 转义，
+     再把成对的 ** 换成 <b> —— 直接 esc() 会把裸的两个星号露在页面上。
+     与 src/app.js 的 md() 保持同一份语义，理由也一并抄过来：
+     · `\n`（反斜杠+n）与真换行都当分段用——principle 目前没有换行，
+       但数据作者以后写多段讲解时不必改渲染；
+     · 允许 ** 跨段配对（分段之后星号落在两段里也要能配上）；
+     · 最后兜底把落单的 ** 剥掉——宁可少一处强调，也不许再把 ** 显示给用户看。 */
+  function md(s) {
+    return esc(s)
+      .replace(/\\n/g, '</p><p>')
+      .replace(/\r?\n/g, '</p><p>')
+      .replace(/\*\*([\s\S]+?)\*\*/g, '<b>$1</b>')
+      .replace(/\*\*/g, '');
+  }
+
   function mountBoard(canvas, opts) {
     var v = global.XQBoard.mount(canvas, opts);
     alive.push(v);
@@ -20189,6 +20262,26 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
   function setState(s) { XQApp._state = s; return s; }
 
   function sideName(c) { return c === global.XQ.RED ? '红方' : '黑方'; }
+
+  /* 题库的 toMove 是字符 'r'/'b'，引擎里是数字 XQ.RED / XQ.BLACK。
+     这两层必须在一个地方换算清楚：黑先题（题库 113 道里有 31 道）的初始轮次和
+     全部文案都要跟着题面走，散在各处写三元表达式迟早漏掉一处 —— 之前就是这样，
+     页面把黑先题摆成红先，用户点黑子被当成「还没轮到你」。 */
+  function sideOfChar(ch) { return ch === 'b' ? global.XQ.BLACK : global.XQ.RED; }
+  function sideNameOfChar(ch) { return sideName(sideOfChar(ch)); }
+  /* 讲「封住谁的退路」时说的是将/帅那一方：黑方攻的是红帅，红方攻的是黑将。
+     只有守方是黑时才说「黑将」，红先题的原文一个字都不变。 */
+  function kingWord(c) { return c === global.XQ.BLACK ? '黑将' : '红帅'; }
+
+  /* 题量从数据里数，不写死：这里原本写「31 道题（杀法 16 + 残局 15）」，
+     而 xq-problems2.js 并入后实为 113 道（杀法 46 + 残局 67）—— 数字一写死就等着过期。 */
+  function xqProbs() { return (typeof XQ_PROBLEMS !== 'undefined' && XQ_PROBLEMS) || []; }
+  function xqProbCount() { return xqProbs().length + ' 道题'; }
+  function xqProbCat(cat) {
+    var n = 0;
+    for (var i = 0; i < xqProbs().length; i++) if (xqProbs()[i].cat === cat) n++;
+    return n;
+  }
 
   /* ---------------- 入口 ---------------- */
 
@@ -20320,7 +20413,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       '<li><b>入门课</b>：15 课 —— 认棋盘 → 走子规则 → 攻防入门 → 开局要领 → 基本战术，每课配盘面。</li>' +
       '<li><b>规则速查</b>：七种棋子 + 将帅照面，各一张小棋盘，蓝点就是那个子能去的位置。</li>' +
       '<li><b>基本杀法</b>：22 个形，每个形的主变化由求解器求出，不是人写死的。</li>' +
-      '<li><b>残局练习</b>：31 道题（杀法 16 + 残局 15），按难度分入门 / 进阶 / 高级三组。' +
+      '<li><b>残局练习</b>：' + xqProbCount() + '（杀法 ' + xqProbCat('杀法') + ' + 残局 ' + xqProbCat('残局') + '），按难度分入门 / 进阶 / 高级三组。' +
       '答案与「错在哪」都由求解器算过 —— 走错不是判死，是让你读一段为什么。</li>' +
       '<li><b>开局体系</b>：19 种开局，每一种的走法都逐手过了规则引擎。</li>' +
       '<li><b>名局讲解</b>：9 局共 910 手逐手讲解；棋谱取自公开棋谱库并逐手走通验证，' +
@@ -20759,10 +20852,15 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       '<span class="pill gray">' + (p.toMove === 'r' ? '红先' : '黑先') + '</span>' +
       '<span class="spacer"></span>' +
       '<span class="small muted">第 ' + (pos + 1) + ' / ' + list.length + ' 题</span></div>';
+    /* 先手方（用户要执的一方）与被杀的一方都从题面取 —— 这几句文案以前写死「红方」「黑方」，
+       黑先题就会指着用户的对手说「点红方的棋子」，题做不了还不说原因。 */
+    var meName = sideNameOfChar(p.toMove);                  /* 执先做题的一方 */
+    var foeName = sideName(XQ.other(sideOfChar(p.toMove)));  /* 被将死的一方 */
+
     html += '<p class="q-ask">' + esc(p.goal) + '</p>';
     html += '<p class="small muted" style="margin:0">' +
       '能直接将军的着法往往不止一手，能赢的只有一手。想不出来就点「给我提示」，提示一条一条给。' +
-      '目标是把黑方的将/帅<b>将死</b>（或困毙），不是把将吃掉。</p>';
+      '目标是把' + foeName + '的将/帅<b>将死</b>（或困毙），不是把将吃掉。</p>';
     html += '</div>';
 
     /* 左棋盘（吸附）+ 右提示与反馈 —— 与围棋练习页同一套布局类 */
@@ -20771,9 +20869,9 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     html += '<div class="board-holder" style="max-width:580px;margin:0 auto">' +
       '<canvas id="xq-eg-canvas"></canvas></div>';
     html += '<div class="board-bar">' +
-      '<span class="pill wood" id="xq-eg-turn">轮到' + sideName(p.toMove || 'r') + '</span>' +
-      '<span class="small muted" id="xq-eg-tip">点红方棋子选中，再点目标点走子</span></div>';
-    html += '<div class="board-say" id="xq-eg-say">红方先行。点红方的棋子选中它（橙圈），' +
+      '<span class="pill wood" id="xq-eg-turn">轮到' + meName + '</span>' +
+      '<span class="small muted" id="xq-eg-tip">点' + meName + '棋子选中，再点目标点走子</span></div>';
+    html += '<div class="board-say" id="xq-eg-say">' + meName + '先行。点' + meName + '的棋子选中它（橙圈），' +
       '蓝点就是它能走的格；再点目标点走子。</div>';
     html += '</div></div>';
     html += '<div class="row" style="margin-top:16px">' +
@@ -20813,7 +20911,9 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     host.innerHTML = html;
 
     var bd = new XQ.Board();
-    bd.setup(p.pieces);
+    /* 摆子必须连先手一起摆：题库 113 道里 31 道黑先，只传 pieces 的话 setup 把
+       toMove 复位成红，于是黑先题一进来就「还没轮到黑方」，点黑子被拒、题做不了。 */
+    bd.setup(p.pieces, p.toMove);
     var tFrom = bd.idx(p.answers[0].from[0], p.answers[0].from[1]);
     var tTo = bd.idx(p.answers[0].to[0], p.answers[0].to[1]);
     var ansSet = {};
@@ -20852,10 +20952,13 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     /* 跳到「走完 n 手」的局面。
        实现方式是**从头重摆再重放**，而不是在现有局面上 undo ——
        来回前后跳时不用维护撤销栈，也不会因为顺序错乱把场面搞脏。
-       31 道题的主变最长 7 手，重放的代价可以忽略。 */
+       这类主变最长不过七八手，重放的代价可以忽略。
+       （原注释写「31 道题」，那是题库合并前的旧规模，现在 113 道，别再留具体数字。） */
     function applyLine(n) {
       n = Math.max(0, Math.min(line.length, n));
-      bd.setup(p.pieces);
+      /* 重摆时要连同先手方一起摆：「从头开始」之后局面就该回到题面那一手 ——
+         这里漏掉 toMove，黑先题回到原始局面时引擎又认为轮到红方（做对之前的状态就错了）。 */
+      bd.setup(p.pieces, p.toMove);
       var bad = false, k;
       for (k = 0; k < n; k++) {
         var m = line[k];
@@ -20941,15 +21044,19 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     }
 
     /* 走错时的「为什么」：先用题库里同一步的 traps.why（求解器算的），
-       对不上就现场用引擎复算一步 —— 把黑方的应着举出来。 */
+       对不上就现场用引擎复算一步 —— 把守方的应着举出来。
+       守方是谁要看 bd.toMove（走完这一手之后的轮到方），不能写死黑方：黑先题里守方是红方。 */
     function wrongWhy(from, to) {
       var la = XQ.toLabel(from), lb = XQ.toLabel(to);
       var t = trapWhy(p, la, lb);
       if (t) return t;
-      var opp = bd.toMove;                                 /* 这一手走完，轮到黑方 */
+      var opp = bd.toMove;                                 /* 走完这一手，该轮到的是守方 */
+      var foe = sideName(opp);                             /* 红先题=黑方，黑先题=红方 */
+      var me = sideName(XQ.other(opp));                      /* 做题的一方 */
+      var king = kingWord(opp);                            /* 「黑将」/「红帅」 */
       var ms = bd.legalMoves(opp), pick = null, k;
       if (!ms.length) {
-        return '这一手之后黑方无子可动 —— 但题库记录的正解不是它，可能是题库有误，请报给作者。';
+        return '这一手之后' + foe + '无子可动 —— 但题库记录的正解不是它，可能是题库有误，请报给作者。';
       }
       for (k = 0; k < ms.length; k++) {                    /* 优先举「将/帅让开」的应着 */
         if (bd.t[ms[k].from] === 'K') { pick = ms[k]; break; }
@@ -20957,11 +21064,11 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       if (!pick) pick = ms[0];
       var reply = '「' + XQ.toLabel(pick.from) + '-' + XQ.toLabel(pick.to) + '」';
       if (bd.isChecked(opp)) {
-        return '这一手确实将军了，但黑方有应着：黑方可以走 ' + reply + ' 应住，红方的先手就断了。' +
-          '杀棋要先封住黑将的退路，再动手。';
+        return '这一手确实将军了，但' + foe + '有应着：' + foe + '可以走 ' + reply + ' 应住，' +
+          me + '的先手就断了。' + '杀棋要先封住' + king + '的退路，再动手。';
       }
-      return '这一手<b>没有将军</b> —— 轮到黑方，黑方缓过手来了（例如可以先走 ' + reply + '）。' +
-        '杀棋的次序是先封退路、再动手，中间不能给黑方喘气的机会。';
+      return '这一手<b>没有将军</b> —— 轮到' + foe + '，' + foe + '缓过手来了（例如可以先走 ' + reply + '）。' +
+        '杀棋的次序是先封退路、再动手，中间不能给' + foe + '喘气的机会。';
     }
 
     function solutionHTML() {
@@ -20980,7 +21087,8 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
         }
         out += '</div>';
       }
-      if (p.principle) out += '<div class="principle"><b>记住这条：</b>' + esc(p.principle) + '</div>';
+      /* principle（「记住这条」）数据里 82/113 条写了 **重点**，走 esc() 会把裸星号露出来 */
+      if (p.principle) out += '<div class="principle"><b>记住这条：</b>' + md(p.principle) + '</div>';
       return out;
     }
 
@@ -21020,6 +21128,9 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
        同时**打开逐步演示**并停在第 1 手 —— 之后可以一手一手往下看。
        （原来的实现只走到第一手就没了，多手杀法看不到后面几步。） */
     function finish(from, to, revealed) {
+      /* 走这一手的是谁：此刻 bd.toMove 已经翻到守方，取另一侧就是做题方。
+         必须在 applyLine 重摆之前算出来，否则黑先题会被写成「红方 …：走对了。」 */
+      var me = sideName(XQ.other(bd.toMove));
       solved = true;
       XQApp._state.solved = true;
       hintBox.innerHTML = '';
@@ -21037,7 +21148,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       }
       setTurn();
       var mv = XQ.toLabel(from) + '-' + XQ.toLabel(to);
-      sayEl.textContent = '红方 ' + mv + '：' + (revealed ? '这就是正解。' : '走对了。') +
+      sayEl.textContent = me + ' ' + mv + '：' + (revealed ? '这就是正解。' : '走对了。') +
         (line.length > 1
           ? '下面可以用棋盘底下的「下一步」一手一手看完整条杀法（一共 ' + line.length + ' 手）。'
           : '');
@@ -21055,7 +21166,9 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       }
       var color = bd.g[from];
       if (color !== bd.toMove) {
-        sayEl.textContent = '现在轮到' + sideName(bd.toMove) + '走 —— 先点红方的棋子。';
+        /* 「先点谁的棋子」跟着 bd.toMove 走：黑先题点错颜色时，要让他点的是黑子。
+           自由摆棋页（renderBoard 的 onMove）早就是这么写的，这里以前漏成了写死的红方。 */
+        sayEl.textContent = '现在轮到' + sideName(bd.toMove) + '走 —— 先点' + sideName(bd.toMove) + '的棋子。';
         return false;
       }
       var r = bd.play(from, to, color);
@@ -21067,7 +21180,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
 
       if (ansSet[from + '>' + to]) { finish(from, to, false); return true; }
 
-      /* 走错：先按「走完之后」的局面把黑方的应着算出来，再把这一手撤回去。
+      /* 走错：先按「走完之后」的局面把守方的应着算出来，再把这一手撤回去。
          返回 false 让棋盘保留选中与蓝点，用户可以直接改点别处重试。 */
       wrongN++;
       var why = wrongWhy(from, to);
@@ -31336,7 +31449,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       218: '白棋在右下角长一手，把角上的形状定住，同时接上自己的棋。白棋一边打劫一边收官，两条线同时进行，一点不乱。这就是当年人们说的「吴清源下棋像水」——你从哪儿挡，它就从别处流过去。',
       219: '黑棋在角上长一手，把右下角的目数定下来。这是黑棋在中腹之外能拿到的最后一小块。\\n棋局到这里，黑棋能加的地方已经基本加完了。它最后输 2 目 —— 而这两目就分散在全盘这些「只差一点点」的地方，没有哪一处是决定性的。',
       220: '白棋再提一次中腹的劫，吃掉黑棋一颗子。这个劫已经变成纯粹在磨人的东西了。\\n阶段小结：两百二十手，中腹那个劫还在拖着，两边的手数都砸在提来提去上。这一段的关键不在提了几颗子，而在白棋始终没让黑棋开出第二处战场——黑棋想在中腹咬下一块，可白棋这块棋早就活了。剩下的都是小官子。',
-      221: '白棋长一手接上，把中腹这块连好。白棋顺手把黑棋伸进来的那颗子挡在外面，一点都不放松。\\n这一局最后只差 2 目，所以每一处一两目的地方都不能放。白棋在两百多手之后还能保持这种紧度，是它能守住胜果的关键。',
+      221: '黑棋长一手接上，把中腹这块连好。白棋顺手把黑棋伸进来的那颗子挡在外面，一点都不放松。\\n这一局最后只差 2 目，所以每一处一两目的地方都不能放。白棋在两百多手之后还能保持这种紧度，是它能守住胜果的关键。',
       222: '白棋长一手接上，把中腹几颗子连起来。白棋顺手紧黑棋的气，一点机会都不让。\\n在只赢一两目的局面下，「一点机会都不让」是最重要的原则。任何一次随手的退让都可能让出两目，而那正好是胜负的分量。',
       223: '黑棋再提一次中腹的劫。这个劫打到这儿，两边的手数几乎都砸在这一点上了。\\n黑棋又提了一遍中腹的劫。打到这个程度，双方大量的手数都用在了这一点上。\\n一局棋里如果一个劫缠了几十手，说明双方都认为这里值得投入。而在这种漫长的劫争里，胜负往往不取决于这个劫本身，而取决于谁在这几十手之外还能顺手把别处的目数收好。',
       224: '白棋在右下角尖一手打吃，把黑棋又逼一下。白棋一边在中腹拉锯，一边在角上顺手收目，两不耽误。AI 对白棋这一段的评价是「清楚」——它知道哪些是必须应的，哪些可以放着。',
@@ -31368,7 +31481,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       250: '白棋在上边一间跳，把上面这块的边收好。上边原本是被白棋钻进来削过的黑棋地，收官时白棋又从这里刮了一层。当年的人算完这一段，结论是：白棋在上边前后掏走的目数，正好补上它在中腹损失的部分。',
       251: '黑棋尖一手紧气接上，把上边这块的形状补好。黑棋这几手都在救火，没有进攻的余地了。\\n棋局到了这种程度，一方的棋已经只能自保。这盘棋从白棋在中盘建立起优势开始，黑棋就一直在做「补漏」的工作，直到最后也没能反攻。',
       252: '白棋在角上尖一手，把上边角上的目数收干净。白棋收官一步比一步紧。\\n吴清源的收官风格和他中盘一样：快、准、不拖泥带水。他不在任何一个地方多花一手，也不在任何一处少花一手 —— 每一手都恰好够用。',
-      253: '白棋长一手接上，把角上的形状走好。白棋又把这一处守住了。\\n到这一手，白棋全盘已经没有任何一块需要担心的棋。它的优势不大，但非常干净 —— 没有薄味、没有断点、没有可以打劫的地方，黑棋找不到任何可以下手的位置。',
+      253: '黑棋长一手接上，把角上的形状走好。白棋又把这一处守住了。\\n到这一手，白棋全盘已经没有任何一块需要担心的棋。它的优势不大，但非常干净 —— 没有薄味、没有断点、没有可以打劫的地方，黑棋找不到任何可以下手的位置。',
       254: '白棋长一手接上，把角上的形状走好。白棋又把这一处守住了。\\n这一局后半程，白棋做的事情基本都是「守住」——它不需要进攻，不需要赚目，只要把已有的优势维持到最后就行了。这不轻松，但是在有优势的情况下，这是最可靠的做法。',
       255: '黑棋在右下角尖一手，吃掉白棋一颗子。右下这个小角，黑棋前后争了一百多手，最后总算在那里活了。可这一块黑棋活得很窄，能算的目数很少——这是白棋当年在右下角围网围出来的结果。',
       256: '白棋在角上尖一手，吃掉黑棋一颗子打吃回去。右下角最后的交换，两边都收到了自己想要的那一点。\\n到这一手，棋盘上大部分的账都算完了。剩下的二十手，只是一些零碎的确认。棋局的面貌已经非常清楚：白棋领先两目左右。',
@@ -31389,7 +31502,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       271: '黑棋在左下尖一手，吃掉白棋一颗子，顺手把气收紧。左下角这一小块争了几十手，黑棋总算把该收的收回来了。可惜这些收获都在白棋不需要的地方。',
       272: '白棋长一手紧气接上，把这一块也走定。白棋从头到尾没有出过一手大错。\\n一局两百七十六手的棋，白棋走出了一手也没有大错的表现。而黑棋也没有大错 —— 双方的差别只在「谁在中盘多赚了那几目」。这种棋最能说明职业高手的水平有多接近。',
       273: '黑棋在角上长一手接上，把右下角的目数收完。这是全盘最后一块有争议的地方了。\\n到这里，双方的目数都已经可以数出来了。白棋领先两目左右，棋盘上再没有任何可以改变这个结果的地方。这一手之后，剩下的只是礼节性的收尾。',
-      274: '黑棋尖一手打吃，把边上最后这点走完。这一手之后，全盘就只剩最后一手了。\\n整局棋到此走完。这一局是 1939 年镰仓十番棋的第一局，吴清源执白以 2 目取胜 —— 日本棋界后来把此后十六年称为「吴清源时代」，而这盘棋就是它的起点。',
+      274: '白棋尖一手打吃，把边上最后这点走完。这一手之后，全盘就只剩最后一手了。\\n整局棋到此走完。这一局是 1939 年镰仓十番棋的第一局，吴清源执白以 2 目取胜 —— 日本棋界后来把此后十六年称为「吴清源时代」，而这盘棋就是它的起点。',
       275: '黑棋长一手打吃，把左边最后这一点走完。黑棋这几手其实都是在走已经完全定形的地方。\\n棋谱到这里，只剩下最后一手。这一局从 1939 年 9 月 28 日开始，在镰仓的建长寺下了三天，中间因为木谷实的身体状况中断过一次，最后由吴清源执白 2 目取胜 —— 这也就是「吴清源时代」的第一子。',
       276: '白棋长一手接上，276 手，对局结束。这是镰仓十番棋的第一局：白棋（吴清源）2 目胜。\\n先看这 2 目的分量。1939 年的日本不贴目，黑棋先走天然带着大约六目半的便宜，白棋想赢，必须靠棋盘上的功夫把这笔钱赢回来。2 目是什么概念？就是「白棋真的把先手那点便宜全数赢回来了，还多赢了两目」。在一盘两个人都下到极限的棋里，这是最硬的一种赢法。\\n再看胜负的走势。开局黑棋两个小目取地，白棋经营大模样；中盘白棋各处试探，黑棋处处应付，把自己的棋越走越重；白 120 那一手手软，右边的劫争让白棋净亏 7 目，黑棋借机把局面扳到了手里——紧接着，第 157 手之后木谷实鼻血发作，倒在对局席上，对局中断。\\n续战之后，木谷实的棋明显松了。收官阶段他自己也出了失着，而吴清源二次挑起中腹的劫，把局面一点点掰了回来，最后稳住 2 目。这盘棋的胜负不是在某一手定下的，是在两个人先后见底的过程里挪过去的。\\n这里要补一句关于 AI 的话。现代 AI 复盘这一局，对中盘那一段的判断和当年的对局室并不一样：它认为白棋那道大模样一直有效率，黑棋从第 60 手前后就掉到一成胜率、一直背着盘在下，真正反复的只有两处——第 190 到 192 手黑棋一度爬到七成，第 193 手又一手掉回去。至于公认的「白 120 失着」，AI 也只给了很小的差评。这不是谁算错了，而是两种棋观的分歧：1939 年的棋手看的是「我兜里有几目地」，AI 看的是「全盘每一颗子的效率」。这一局正好摆在两种尺子的中间。\\n终局 AI 算出来的目差是黑棋落后一目多一点，和实际的白棋 2 目胜几乎一致——可见这两套账在「差多少」上是一致的，分歧只在「什么时候就已经输了」。\\n最后一件事，比这盘棋本身更重要。这一局之后，日本棋界用十六年时间得到了一个答案：从 1939 年到 1956 年，吴清源在一系列升降十番棋里，把日本全部一流棋士一个接一个打到降格——木谷实、桥本宇太郎、岩本薰、藤泽库之助、坂田荣男，这些名字本来都是「第一人」的候选。这十六年后来被称作「吴清源时代」，他本人被尊为「昭和棋圣」。而这一局，就是那个时代的第一子。\\n顺便说一句：输掉这一局的人后来办了木谷道场，教出大竹英雄、加藤正夫、武宫正树、小林光一、赵治勋、石田芳夫……今天日本棋界的半壁江山都出自他门下。棋盘上输掉的那份东西，他换了个方式又拿回来了。\\n换一步会怎样？这盘棋最后只差 2 目，黑棋要补的不是某一手，而是第 41、47、53 那几处「跟着对方走」的选择——那几手每一手都只亏一点，加起来就是最后这两目。',
     }
@@ -31965,9 +32078,9 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       198: '白棋 K6 尖，白棋把中腹这块补一手，白棋这条大龙到这里才算真的安全。从第 68 手 K4 钻进来，到这一手 K6 落定，白棋这条大龙走了整整一百三十手，中间经历了对杀、做眼、劫争、联络，总算彻底活透了。\\n换一步会怎样？白棋要是不补，黑棋在中腹一冲，虽然未必能杀，但白棋总要多花手数应付，官子上的节奏就打乱了。到此白棋最要紧的任务——把钻进来的这块棋养活——全部完成，接下来只剩数目。',
       199: '黑棋 H7 长顶住，黑棋在中腹左右再争一点目。黑棋还在中腹一点点地抠目。走到这里，全盘已经没有大块的空可以争了，剩下的都是几目的地方。\\n换一步会怎样？黑棋要是在这里停手，白棋一长，黑棋中腹这一点就没了。可是黑棋每在这里花一手，就等于放弃一次在别处先动手的机会——官子阶段的手数永远是不够用的，怎么用，比用多少更要紧。',
       200: '阶段小结：中盘到这里结束。回顾第 61 手到第 200 手：黑棋的攻击在第 100 手前后达到顶点，之后因为几次「舍不得」和方向偏差，被白棋的大龙一步步走出来；右边那场劫争里黑棋又用了小劫材，六颗棋筋被提，局面彻底翻成白棋领先。\\n这里最值得记住的不是某一步棋，而是攻和守这两种角色的难度差：治孤的一方只需要算对一次，攻杀的一方要一直算对下去，中间只要有一手松，前面二十手的便宜就全没了。武宫这盘棋的攻击并不差，差的是在局面已经转变的那几个节点上，没有跟着一起转变。\\n另外要提醒一句：黑棋全场最大的亏损并不在提子最多的第 158 手，而在第 131、151 两手——那两手才是胜负真正的分界。看图的时候不要被「提了一大块」的场面骗了，要看提子之前那几手是怎么下的。',
-      201: '白棋 G6 尖，白棋在中腹左边顶住，同时打吃黑棋一块。白棋这条龙活透之后，中腹的形状反过来成了白棋的厚味。这一步是白棋借着中腹的厚度向左边施压：黑棋被打了吃，只能应，白棋就顺势在这一带多推一路。\\n换一步会怎样？白棋要是只顾自己收目，不去碰黑棋，黑棋就有机会把左边那几块补好。治孤成功之后转成攻势，是这盘棋白棋最舒服的节奏——它从第 68 手开始就在当「被攻的一方」，到这里终于反过来了。',
-      202: '黑棋 J8 尖，黑棋把中腹这块补一手，这里的形已经不能出问题了。黑棋被白棋连着打吃了好几手，只能一手一手应付。走到官子阶段，黑棋全盘都在补，几乎没有主动出击的机会。\\n换一步会怎样？黑棋要是不补，白棋从这里一断，黑棋中腹那几块就要分头做活，损失比补一手大得多。可这样补下去，黑棋每应一手就少一手去抢大官子——局面就是这么慢慢滑掉的。',
-      203: '白棋 F8 尖，白棋在中腹往下一手，边界又往黑棋那边推了一点。白棋的官子下得很有耐心：中腹每一路都值好几目，它一点都不放过。\\n换一步会怎样？白棋要是觉得这里小，先走去角上收，黑棋在中腹一长，白棋这几手的成果就要吐回去一部分。官子的大小判断，白棋整盘都做得很准。',
+      201: '黑棋 G6 尖，白棋在中腹左边顶住，同时打吃黑棋一块。白棋这条龙活透之后，中腹的形状反过来成了白棋的厚味。这一步是白棋借着中腹的厚度向左边施压：黑棋被打了吃，只能应，白棋就顺势在这一带多推一路。\\n换一步会怎样？白棋要是只顾自己收目，不去碰黑棋，黑棋就有机会把左边那几块补好。治孤成功之后转成攻势，是这盘棋白棋最舒服的节奏——它从第 68 手开始就在当「被攻的一方」，到这里终于反过来了。',
+      202: '白棋 J8 尖，黑棋把中腹这块补一手，这里的形已经不能出问题了。黑棋被白棋连着打吃了好几手，只能一手一手应付。走到官子阶段，黑棋全盘都在补，几乎没有主动出击的机会。\\n换一步会怎样？黑棋要是不补，白棋从这里一断，黑棋中腹那几块就要分头做活，损失比补一手大得多。可这样补下去，黑棋每应一手就少一手去抢大官子——局面就是这么慢慢滑掉的。',
+      203: '黑棋 F8 尖，白棋在中腹往下一手，边界又往黑棋那边推了一点。白棋的官子下得很有耐心：中腹每一路都值好几目，它一点都不放过。\\n换一步会怎样？白棋要是觉得这里小，先走去角上收，黑棋在中腹一长，白棋这几手的成果就要吐回去一部分。官子的大小判断，白棋整盘都做得很准。',
       204: '白棋 T5 尖，白棋在右边一路走一手。这一带白棋几乎是白送的目：黑棋右边的模样被掏掉以后，这条边上连着几路的目都是白棋的。白棋现在要做的事情很简单——把每一块已经得到的目收干净，不给黑棋任何反扑的机会。\\n换一步会怎样？白棋如果贪着想往中腹多挤一点，黑棋在右边一路反收，白棋这里的目反而要缩水。领先的时候，官子要稳，不要贪。',
       205: '黑棋 T4 长挡住，黑棋在右下角把目收住。黑棋现在只剩「守住」这一件事：白棋到哪里收，黑棋就在哪里挡。右下角这一带本来还可以争一争，可黑棋的手数已经不够用了。\\n换一步会怎样？黑棋要是不挡，白棋在 T4 一长，右下角白棋的目又要多几目，而黑棋全盘落后的本来就只有几目。落后棋在官子上更不能漏，可漏不漏已经不是胜负的关键了。',
       206: '白棋 Q18 尖，白棋在右上角走一手，这一手是角上最大的官子之一。白棋在右上这一点，既把自己的角地收完，又顺手限制黑棋上边的形。\\n换一步会怎样？白棋要是先走别处，黑棋在 Q18 一尖，白棋右上角的目就要少好几目，那是角上数一数二的官子。官子的次序里，角上的大官子永远排在前面——白棋这一手没有走错。',
@@ -38637,7 +38750,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       { n: 211, label: '白棋推枰认输 —— 「这是《血泪篇》中黄龙士被杀得最狼狈的一局」', summary: '陈祖德：「白 A 位断可吃中腹一子。白走了二线粘这手棋，遂推枰认输。……这是《血泪篇》中黄龙士被杀得最狼狈的一局。」', detail: ['**最后一手（第 211 手），白棋在二线粘了一手，然后推枰认输。**', '**陈祖德的总评，是整部血泪篇里对黄龙士最重的一段：**', '一、「**本局开局黄龙士通过精密计算吃了一块棋，展现了大国手风采**」——**先肯定了白棋的开局**；', '二、「**但由于没抓住左上角打吃的机会，情绪受到影响**」——**指出了转折点（第 55 手）**；', '三、「**后半盘下了许多无理手，被弄出三块孤棋后，白棋陷入困境**」——**描述了崩盘的过程**；', '四、「**但还点入三三非常无理**」——**特别点出第 85 手**；', '五、「**虽然用尽办法，也只造了一个永远也打不赢的劫，无力回天**」——**承认白棋后来确实在想办法**；', '六、「**这是《血泪篇》中黄龙士被杀得最狼狈的一局**」——**最终的定性**。', '**AI 复算：最后一手白棋亏 3.0 目，而全盘目差是 +36.1（黑棋领先 36.1 目）。****这与陈祖德「实空差距巨大」的判断完全一致。**', '**「最狼狈」三个字，也让这一局在十局里有了独特的位置：**前面几局的输，黄龙士都还有可敬之处；**这一局，是输在自己的心态上。**'] },
     ],
     background: { tldr: '血泪篇第九局（211 手），黑棋（徐星友）胜，白棋第 211 手推枰认输。这一局的开局是黄龙士在本篇里的高光时刻 —— 他通过精密计算把黑棋卷进一场意外的对杀；但第 55 手「错失良机」之后，白棋情绪受到影响，陈祖德直言「这局棋黄龙士失去平常心，中盘太多过份的着」。后半盘白棋被弄出三块孤棋，还点入三三，最终只造出一个「永远也打不赢的劫」。**陈祖德的总评是：「这是《血泪篇》中黄龙士被杀得最狼狈的一局。」**', paras: ['**这一局是血泪篇里白棋输得最惨的一局。** 陈祖德在篇末的总评里用了「最狼狈」三个字：「这是《血泪篇》中黄龙士被杀得最狼狈的一局。」', '**但这一局的开头，白棋下得非常好。** 陈祖德在总评里首先肯定的是开局：「本局开局黄龙士通过精密计算吃了一块棋，展现了大国手风采。」', '**开局的故事是这样的：** 第 30 手黑棋「横顶」，陈祖德说「是古风，现在一般会考虑弃子……**这着棋很凶，在治孤的同时还要分断攻击白棋**」。但白棋没有退让 —— 第 34 手黑棋「飞封，感觉上很好，事实上并非最善」，第 35 手白棋「**贴住，强手。黑形状不好**」，第 37 手「**白棋断然反击**」。结果是第 43 手陈祖德写道：「**黑棋也被封住，局部形成复杂的对杀。这是徐星友没料到的。**」', '**「这是徐星友没料到的」——** 这八个字说明：白棋在开局把黑棋卷进了一场对方没有准备的战斗。**这是黄龙士力量的体现。**', '**但转折来得很快，而且很小。** 第 54 手黑棋「走不好，就脱先」，陈祖德说「这着虽然很大，但有问题。**给了白棋一个很大的机会**」。第 55 手，白棋没有抓住。陈祖德的注只有八个字：「**白长，错失良机，当 A 位打，见图 15。**」', '**「机会转瞬即逝」——** 这是陈祖德在第 56 手的注文。**从这一刻起，白棋的状态就变了。**', '陈祖德后面连用了三次很重的批评：', '**第 85 手**：「白置三块孤棋不顾，点入三三，**太过份了**。此时还是应当处理孤棋见图 22。」', '**第 103 手**：「断过份，**这局棋黄龙士失去平常心，中盘太多过份的着**。」', '**第 109 手**：「托夹是手筋，**但无力回天了**。」', '**「失去平常心」四个字，是本局的钥匙。** 也就是说：白棋后面下的那些棋，**不是黄龙士不会下，而是他心态乱了。**', '**这里可以对照一个古老的道理：** 围棋里最怕的不是「下错」，而是「带着情绪下棋」。下错一手可以补救，**但情绪一旦上来，后面的每一手都会被带着走。**陈祖德在第 55 手点出「错失良机」，在第 103 手点出「失去平常心」——**这两处注文之间隔了将近五十手，而白棋就是在这五十手里把局面走坏的。**', '**黑棋这边则越下越稳。** 第 64 手「黑占角，大极！黑优势明显。**此处被白占到将成近四十目大空**」；第 132 手「黑又稳稳地跳起，白实空大差，还得耍大龙」；第 194 手「黑很稳地补一手，防止白图 26 的手段。**这是优势棋的态度**」。', '**第 164 手，陈祖德给了一个明确的实空账：**「黑棋消劫，现在黑棋仅右上已成六十余目，全盘八十多目，而白棋最多五十目，**实空差距巨大**。」', '**八十多目对五十目 —— 这就是本局的真实差距。** 而让三子的本钱，大约是三十目左右。**也就是说，黑棋不但保住了三子的本钱，还额外赢了一些。**', '**最后白棋的挣扎：** 第 153 手陈祖德说「在这种艰难的处境中，白能弄出一个劫，已经很不容易了。**但白棋在左边留下的连环劫的隐患就被引爆了**」。白棋搞出一个劫，但**劫材远远不够** —— 陈祖德在第 159 手说「两边价值差不多，都是四十余目」，第 211 手总结为「**只造了一个永远也打不赢的劫**」。', '**所以本局的关键词是「平常心」。** 前面几局（尤其第四、五、七、八局）的主题是「优劣的反复」和「最后三十手的清醒」；**这一局的主题不同 —— 是「情绪的失控」。**', '**这也是血泪篇十局里主题最独特的一局：** 白棋不是被对方的力量压倒的，**而是在一次小小的「错失良机」之后，自己把自己走崩了。**', '**陈祖德用「最狼狈」来形容这一局，大概是这个意思：**前面几局的输，都还有可敬之处（差几目、葬送好局、最后失误）；**这一局的输，是白棋自己乱了阵脚。****这大概也是「血泪篇」这个名字里最苦的一滴泪。**'] },
-    setup: { b: [[3, 15], [9, 9], [15, 3]], w: [] },
+    setup: { b: [[3, 3], [9, 9], [15, 15]], w: [] },
     extNotes: {
       '1': '黄龙士开局或挂角，或小目，或目外。',
       '2': '徐星友占空角都是走目外。目外占这一点而不占A位则是为了限制白挂角一子的发展。',
@@ -38947,7 +39060,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     date: '约康熙中期（1700 年前后）',
     place: '无考',
     event: '血泪篇 · 十番棋第十局（终局）',
-    rule: '让三子（黑受三子：D16 / K10 / Q4，斜行）· 不贴目 · 白先',
+    rule: '让三子（黑受三子：D4 / K10 / Q16，斜行）· 不贴目 · 白先',
     result: '黑棋（徐星友）胜 · 黑全盘八十三目强，白七十余目，盘面差十目以上',
     sgf: '1700-HuangLongshi-XuXingyou-10',
     extNotesSource: '陈祖德九段解说《血泪篇》· 桔中仙整理 · 新锐围棋网',
@@ -39490,7 +39603,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     ],
     wrongAt: {
       '17,11': 'S8：第一手就直接切断。看起来最直接，其实早了：白这时还有 T6、T9 两处外气可走，你 S8 一断，白 T6 一长就把 S10 接回去了，两个洞各有一个出口，你一个都堵不住。正确次序是先点外气（T5、T10），把白的出口逼成一个方向，再来切。',
-      '17,9': 'S10：直接紧白大块的气。白大块 6 气、头绪多，你一手紧不到痛处；白反过来 S6 一贴，你自己的 T5 就先死了。杀气不能从气多的一边开始。',
+      '17,10': 'S9：直接紧白大块的气。白大块 6 气、头绪多，你一手紧不到痛处；白反过来 S6 一贴，你自己的 T5 就先死了。杀气不能从气多的一边开始。',
       '16,9': 'R10：想从左边围。白 S9 一长，S10 和大块连成一片，整块棋 10 气以上 —— 杀棋变成了帮对方补棋。',
       '18,10': 'T9：抢先占白要补的点。但这手没有紧到任何一块白棋的气，白安然 T6 接上，你白丢一手先手，之后再怎么走都差一拍。',
     },
@@ -39539,7 +39652,6 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       '你走 C3。把黑棋左边的最后一点空当填掉。至此黑棋整块只剩一个眼位，做不出两只眼 —— 整块死。',
     ],
     wrongAt: {
-      '3,15': '先紧气是最大的陷阱。你若在第 5 手直接 D4 打吃，黑棋会从下方 E3 冲出去，你前面封口的 F1、G1 全部白下 —— 这是本题的第一个分水岭。',
       '6,12': '第 3 手若贪心去 G7 断黑棋上边的联络，黑棋从下边 D3 一路冲，你反倒被切成两块。本题下边比上边急。',
     },
     traps: [
@@ -39860,7 +39972,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       '你走 D1，把角上最后一点空间填掉。黑棋整块无眼。',
     ],
     wrongAt: {
-      '1,16': '第 1 手若直接 B3 或 A3（进角），黑棋 B4 一顶，你反而被夹在角和边之间，自己的子也危险。先包外面，再进角 —— 这是杀角的第一步。',
+      '0,16': '第 1 手若直接 B3 或 A3（进角），黑棋 B4 一顶，你反而被夹在角和边之间，自己的子也危险。先包外面，再进角 —— 这是杀角的第一步。',
       '1,18': '第 7 手若改走 B1（先收下边），黑棋 A5 一长，A 列就能做出一个眼。A5 比 B1 急。',
     },
     traps: [
@@ -39941,7 +40053,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     ],
     wrongAt: {
       '17,17': '第 1 手若去 S2（更靠中间），黑棋 T2 一占，角上就做出一个眼，整个对杀你落后。角尖的那一手永远最急。',
-      '18,15': '第 5 手若继续在角上纠缠（T4 之类），黑棋 S4 一长，你自己的气就紧了。对杀时要及时切换到外气。',
+      '18,14': '第 5 手若继续在角上纠缠（T5 之类），黑棋 S4 一长，你自己的气就紧了。对杀时要及时切换到外气。',
     },
     traps: [
       '第 1 手若去 S2（更靠中间），黑棋 T2 一占，角上就做出一个眼，整个对杀你落后。角尖的那一手永远最急。',
@@ -39981,7 +40093,6 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     wrongAt: {
       '0,6': '第 1 手若直接 A13（提子的位置），黑棋 A8 一顶就往上跑了。提子之前必须先封气，这是本题最重要的一课。',
       '0,7': '第 5 手若继续在下面紧气，黑棋 A12 一带跟上方联络，整块棋活了。切断的时机比紧气更关键。',
-      '1,5': '第 7 手若继续紧气（B14 之类），黑棋 B13 一占反而做出眼来。先占位置、后紧气，次序不能乱。',
     },
     traps: [
       '第 1 手若直接 A13（提子的位置），黑棋 A8 一顶就往上跑了。提子之前必须先封气，这是本题最重要的一课。',
@@ -40295,7 +40406,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
       '白应 M19，反打 —— 它终于开始反抗了：一直跑不行，干脆打吃你一下，希望你应。但你不理（继续压），这个反打就落空了。',
       '你走 O19，接着打。注意你每一步都在增加白棋提子的数量。',
       '白应 P19，提掉你的四颗子。这是本题最戏剧性的一手 —— 白棋一口气提了四颗。',
-      '你走 N18，最后一手。此时这个点已经是真眼。白棋刚才提掉的那四颗黑子，反而把自己的空间填死了，白棋整块死。',
+      '你走 N18，最后一手。此时这个点被黑棋占住，白棋角上只剩 O19 一口气。白棋刚才提掉的那四颗黑子，反而把自己的空间填死了，白棋整块死。',
     ],
     traps: [
       '如果黑棋不先送吃（N19、M18 这一串），直接做眼，白棋会先动手杀黑棋。',
@@ -41888,7 +41999,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     id: 'sq65', cat: '死活', level: 3, kind: 'sequence', size: 19, toMove: 'w', tier: '进阶',
     src: {'book':'《官子谱》','year':1694,'era':'清代','author':'明末过百龄 著 / 清陶式玉 辑','from':'gzp1#333'},
     stones: [[15,5,'b'],[15,4,'b'],[16,3,'b'],[17,3,'b'],[16,4,'b'],[15,8,'b'],[16,8,'b'],[16,7,'b'],[14,9,'b'],[15,10,'b'],[17,6,'b'],[17,2,'w'],[16,2,'w'],[15,2,'w'],[15,3,'w'],[14,4,'w'],[14,5,'w'],[14,6,'w'],[14,7,'w'],[14,8,'w'],[15,7,'w'],[16,6,'w']],
-    ask: '白先。右上角黑棋那一团（P15、P14、R15、R16 一带）左边是白棋 O、P 列的墙，只能往右边走。白棋第一手下在哪里？',
+    ask: '白先。右上角黑棋那一团（Q15、Q14、R15、R16 一带）左边是白棋 O、P 列的墙，只能往右边走。白棋第一手下在哪里？',
     goal: '它唯一的活路在右边 —— 先占住右边那个「同时管住两个出口」的点。',
     plan: [[17,5],[16,5],[18,4],[17,4],[18,6],[15,6],[18,3]],
     stepNotes: [
@@ -42038,7 +42149,7 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
     id: 'sq69', cat: '死活', level: 3, kind: 'sequence', size: 19, toMove: 'w', tier: '进阶',
     src: {'book':'《官子谱》','year':1694,'era':'清代','author':'明末过百龄 著 / 清陶式玉 辑','from':'gzp1#235'},
     stones: [[16,2,'b'],[15,2,'b'],[14,2,'b'],[13,2,'b'],[12,2,'b'],[12,3,'b'],[14,1,'b'],[11,1,'b'],[10,2,'b'],[9,1,'b'],[9,4,'b'],[16,1,'w'],[15,1,'w'],[17,2,'w'],[17,4,'w'],[16,3,'w'],[15,3,'w'],[14,3,'w'],[13,3,'w'],[11,4,'w'],[12,4,'w'],[11,3,'w'],[11,2,'w']],
-    ask: '白先。上面黑棋一大串（Q17、P18、Q16 一带）横在右上，白棋从下面（M15、M16、M17）贴着它。黑棋的出路都在最上面一路。白棋第一手下在哪里？',
+    ask: '白先。上面黑棋一大串（Q17、P18、P17 一带）横在右上，白棋从下面（M15、M16、M17）贴着它。黑棋的出路都在最上面一路。白棋第一手下在哪里？',
     goal: '对方做眼的地方只在最上面一路 —— 从那个点开始，一节一节往上收。',
     plan: [[14,0],[13,0],[12,1],[15,0],[11,0],[10,1],[16,0]],
     stepNotes: [
@@ -43478,7 +43589,9 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
 
     '手筋': {
       s: 9,
-      st: [[3, 1, 'b'], [4, 1, 'b'], [5, 1, 'b'], [3, 2, 'b'], [5, 2, 'b'], [3, 3, 'b'], [4, 3, 'b'], [5, 3, 'b'],
+      /* 黑棋下面那一颗（E6）不能摆 —— 八面围死，白 E7 一上去就是零气的死块。
+         留这一口气，白 E7 才「深陷黑阵」又确实能被吃：往 E6 跑，黑 E5 一堵就提两子。 */
+      st: [[3, 1, 'b'], [4, 1, 'b'], [5, 1, 'b'], [3, 2, 'b'], [5, 2, 'b'], [3, 3, 'b'], [5, 3, 'b'],
         [4, 2, 'w']],
       mk: [[4, 2, 'focus'], [4, 0, 'point']],
       cap: '**这是示意图。**白一子（橙圈）深陷黑阵。普普通通地跑，一定被吃；但如果白棋**先在上面那个点（蓝点）贴一下**，黑棋就得先在自己的地盘里应付，白棋反倒借上了劲。**「手筋」的共同特征就是反直觉**：它常常是送子、自己填一个点、从最不可能的方向走。**为什么反直觉的反而好？**因为它违反了"一般原则"，而一般原则是有例外的 —— **当违反原则能换来更大收益时，那就是手筋。**'
@@ -43509,13 +43622,14 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
 
     '滚打包收': {
       /* 这张不是示意图 —— 它直接取自死活题库的 sq01（那道题的讲解与走法
-         在 verify_problems.js 里逐手核过）。坐标是原盘面平移进 9 路的结果。 */
+         在 verify_problems.js 里逐手核过）。坐标是原盘面平移进 9 路的结果，
+         并整体下移了一行：黑三子原先正好贴在图的顶边上，摆出来是零气的死块。 */
       s: 9,
-      st: [[0, 0, 'w'], [1, 0, 'w'], [2, 0, 'b'], [3, 0, 'b'], [4, 0, 'b'], [5, 0, 'w'], [6, 0, 'w'],
-        [1, 1, 'b'], [2, 1, 'w'], [3, 1, 'w'], [4, 1, 'w'], [5, 1, 'b'], [6, 1, 'b'], [7, 1, 'w'],
-        [1, 2, 'b'], [6, 2, 'b'],
-        [4, 3, 'w'], [5, 4, 'w'], [6, 4, 'b'], [6, 5, 'w']],
-      mk: [[2, 1, 'focus'], [3, 1, 'focus'], [4, 1, 'focus']],
+      st: [[0, 1, 'w'], [1, 1, 'w'], [2, 1, 'b'], [3, 1, 'b'], [4, 1, 'b'], [5, 1, 'w'], [6, 1, 'w'],
+        [1, 2, 'b'], [2, 2, 'w'], [3, 2, 'w'], [4, 2, 'w'], [5, 2, 'b'], [6, 2, 'b'], [7, 2, 'w'],
+        [1, 3, 'b'], [6, 3, 'b'],
+        [4, 4, 'w'], [5, 5, 'w'], [6, 5, 'b'], [6, 6, 'w']],
+      mk: [[2, 2, 'focus'], [3, 2, 'focus'], [4, 2, 'focus']],
       cap: '**这是十九路盘上的一个局部，只取了关键的那几路。**上方黑棋三子与下方白棋三子（橙圈）上下紧紧贴住，中间只隔着三个点，谁也不让谁。白棋这块子看着不小，**但气很紧**。黑棋这时**不急着提子**，而是从外面一手一手贴着它走：白棋每长一手，黑棋就再贴一手 —— 白棋始终只剩一口气，始终做不出眼。**这就是「滚打包收」**：滚着打（贴着对方走）、包着收（一步步把它往边线上压），全程不提子，最后一手才把它封死。（这一局面的完整走法在死活题库 sq01，逐手由引擎核过。）'
     }
   };
@@ -43838,7 +43952,12 @@ window.XQ_GAMES = (window.XQ_GAMES || []).concat([
   function md(s) {
     return esc(s)
       .replace(/\\n/g, '</p><p>')
-      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+      /* 2026-10-14：数据里也有直接写真的换行的（术语「腾挪」「弃子」就是），
+         跨行的 `**…**` 配不上对，页面上落下裸星号。真的换行一并当分段。 */
+      .replace(/\r?\n/g, '</p><p>')
+      .replace(/\*\*([\s\S]+?)\*\*/g, '<b>$1</b>')
+      /* 兜底：落单的星号一律剥掉，绝不再显示给用户 */
+      .replace(/\*\*/g, '');
   }
   /* 一句话摘要：去掉粗体标记与换段符，截 38 字 */
   function plain(s, n) {
@@ -47088,7 +47207,10 @@ var CHESS = (function () {
     this.halfmove = rec.prevHalf;
     this.toMove = rec.color;
     if (rec.color === BLACK) this.fullmove--;
-    this.moves.pop();
+    /* 只在 rec 确实是栈顶时才弹栈 —— 与象棋 / 将棋引擎同一套写法。
+       以前这里无条件 pop，而调用方（摆棋页的「悔一步」）自己也 pop 了一次，
+       于是按一次悔棋退两手，再悔就开始回滚错误的 rec，盘面与着法记录错位。 */
+    if (this.moves.length && this.moves[this.moves.length - 1] === rec) this.moves.pop();
   };
 
   Board.prototype.isMate = function (color) {
@@ -47469,9 +47591,23 @@ var CHESS_BOARD = (function () {
     this.flip = !!opts.flip;
     this.onTap = opts.onTap || null;
     this.interactive = opts.interactive !== false;
-    this.size = Math.max(240, opts.size || 480);
+    /* wantSize = 调用方想要的边长；真正的边长在 _layout 里按容器可用宽度收敛。
+       分两个字段是因为 resize() 会改 size，不能拿它当「原始请求」。 */
+    this.wantSize = Math.max(240, opts.size || 480);
+    this.size = this.wantSize;
     this._bind();
     this._layout();
+    /* 窗口尺寸变了（含手机转屏）就重新量容器再画一次。
+       canvas 一旦被路由换掉就不在了，那时顺手把监听摘掉 —— 不留越积越多的僵尸监听。 */
+    var self = this;
+    this._onResize = function () {
+      if (!(typeof document !== 'undefined' && document.body && document.body.contains(self.canvas))) {
+        if (typeof window !== 'undefined') window.removeEventListener('resize', self._onResize);
+        return;
+      }
+      self._layout(); self.draw();
+    };
+    if (typeof window !== 'undefined') window.addEventListener('resize', this._onResize);
     /* ★ 把视图挂到 canvas 上 —— 测试脚本要靠它拿到 margin/cell 去算点击坐标。
        象棋、将棋两个棋盘都是这么做的（__xqView / __shogiView），这里保持一致。 */
     canvas.__chessView = this;
@@ -47480,6 +47616,13 @@ var CHESS_BOARD = (function () {
 
   ChessBoardView.prototype._layout = function () {
     var dpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1;
+    /* ★ 2026-10-14：以前边长只看 opts（默认 480），从不看容器多宽 ——
+       手机上内容区只有 360px，棋盘硬占 480px，把整页顶出横向滚动
+       （实测 chess/board 与 chess/selfcheck 各溢出 105px，是全站唯一还剩的两处）。
+       现在按父容器可用宽度收敛：桌面容器比 480 宽，行为一字不变；窄屏才缩小。 */
+    var avail = 0, p = this.canvas.parentElement;
+    while (p && !avail) { avail = p.clientWidth; p = p.parentElement; }
+    this.size = (avail && avail < this.wantSize) ? Math.max(240, avail) : this.wantSize;
     this.w = this.size;
     this.margin = Math.round(this.size * 0.052);         /* 留给行列号 */
     this.cell = (this.size - this.margin * 2) / SIZE;
@@ -47534,7 +47677,11 @@ var CHESS_BOARD = (function () {
   };
   ChessBoardView.prototype.setCheck = function (i) { this.check = (i === undefined) ? -1 : i; this.draw(); };
   ChessBoardView.prototype.setFlip = function (f) { this.flip = !!f; this.draw(); };
-  ChessBoardView.prototype.resize = function (px) { this.size = px; this._layout(); this.draw(); };
+  /* 显式改边长：改的是 wantSize（_layout 会再按容器收敛），别直接写 size */
+  ChessBoardView.prototype.resize = function (px) {
+    if (px) this.wantSize = Math.max(240, px);
+    this._layout(); this.draw();
+  };
 
   /* 一枚棋子 */
   ChessBoardView.prototype._piece = function (ctx, cx, cy, cell, color, type) {
@@ -50006,7 +50153,8 @@ var ChessApp = (function () {
 
   /* 行内 `**粗体**` 与换行 —— 数据文件里统一用这个写法 */
   function md(s) {
-    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+    /* 2026-10-14：配对后兜底剥掉落单的 ** —— 宁可少一处强调，也不许把星号显示给用户 */
+    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*\*/g, '').replace(/\n/g, '<br>');
   }
 
   function data(name) {
@@ -50306,8 +50454,14 @@ var ChessApp = (function () {
         CH.toLabelI(rec.to) + (rec.promo ? '=' + rec.promo : '');
     }
 
-    function doMove(from, to, promote) {
-      var r = bd.play(from, to, bd.toMove, promote || null, null);
+    /* ★ 第 4 个参数 castle 是从选中着法一路带上来的，不能省。
+       引擎的签名是 play(from,to,color,promote,castle)（chess-engine.js:325），
+       而它认这手棋的办法是拿 castle 去比对生成的着法表：王 e1→g1 在表里是
+       {castle:'K'}，这里传 null 就一条都匹配不上 → 「蓝点亮着、落子却判不合法」。
+       提示走的是 legalMoves 生成的对象，标记就在里面（点评页 :1149 传 pick.castle，
+       同一个页面两处写法不一致，出错的正是没传的那一处）。 */
+    function doMove(from, to, promote, castle) {
+      var r = bd.play(from, to, bd.toMove, promote || null, castle || null);
       if (!r.ok) { flash('这一手不合法。'); return false; }
       log.push(note(r));
       sel = -1; hints = [];
@@ -50341,7 +50495,8 @@ var ChessApp = (function () {
       if (!cands.length) { flash('这枚棋子走不到那一格。'); return; }
       /* 升变有四种选择，让用户挑 */
       if (cands.length > 1 && cands[0].promo) { askPromo(sel, i); return; }
-      doMove(sel, i, cands[0].promo);
+      /* cands[0].castle 是易位标记（非易位为 undefined），必须跟着传下去 */
+      doMove(sel, i, cands[0].promo, cands[0].castle);
     }
 
     function askPromo(from, to) {
@@ -50360,6 +50515,7 @@ var ChessApp = (function () {
         b.onclick = function () {
           var t = b.getAttribute('data-p');
           box.style.display = 'none';
+          /* 升变与易位互斥（能升变的只有兵），所以这里不带 castle */
           doMove(promo.from, promo.to, t);
           promo = null;
         };
@@ -50367,7 +50523,15 @@ var ChessApp = (function () {
     }
 
     $('ch-undo').onclick = function () {
-      var rec = bd.moves.pop();
+      /* ★ 这里只**读**栈顶，不 pop —— 弹栈是引擎的活。
+         以前是 app 先 pop 一次、`undo()` 内部再无条件 pop 一次，一次悔棋吞掉两手：
+         盘面只退回一手，走子栈却少了两手，「最后一手」标记跟着消失，
+         着法记录与盘面各说各话；再点悔棋则因栈已空而什么都不做（退不回去了）。
+         2026-10-14 两头一起收口：调用方改成只读（与 xq-app.js 的悔棋同一写法，
+         理由是走子栈的所有权本来就在引擎，play 往里 push，调用方只读不删），
+         引擎侧 `undo()` 也补上了将棋/象棋早就有的 `if (last === rec) moves.pop()` 守卫
+         （见 chess-engine.js），这样两边无论谁传错都不会再吞两手。 */
+      var rec = bd.moves[bd.moves.length - 1];
       if (!rec) return;
       bd.undo(rec);
       log.pop();
@@ -50769,7 +50933,7 @@ var ChessApp = (function () {
       if (!E) { host.innerHTML = '<div class="card"><p>没有这一条。</p></div>'; return; }
       host.innerHTML =
         '<div class="crumb small muted" style="margin-bottom:10px"><a href="#/chess/endgame">← 回残局</a></div>' +
-        '<h1>' + esc(E.title) + '</h1><p class="sub">' + esc(E.concl) + '</p>' +
+        '<h1>' + esc(E.title) + '</h1><p class="sub">' + md(E.concl) + '</p>' +
         '<div class="prob-layout">' +
         '<div class="prob-board"><div style="width:100%"><canvas id="ch-e-canvas"></canvas></div>' +
         '<div class="row" style="margin-top:10px">' +
@@ -50791,7 +50955,7 @@ var ChessApp = (function () {
     list.forEach(function (E) {
       h += '<div class="card" style="cursor:pointer" onclick="location.hash=\'#/chess/endgame/' + E.id + '\'">' +
         '<h3 style="margin-top:0">' + esc(E.title) + '</h3>' +
-        '<p class="small muted" style="margin:0">' + esc(E.concl) + '</p></div>';
+        '<p class="small muted" style="margin:0">' + md(E.concl) + '</p></div>';
     });
     host.innerHTML = h;
   }
@@ -50987,7 +51151,7 @@ var ChessApp = (function () {
         G.keys.map(function (k) {
           return '<div class="sol-row" style="cursor:pointer" data-n="' + k.n + '">' +
             '<span class="sol-n">' + k.n + '.</span><span class="sol-t"><b>' + esc(k.label) + '</b> —— ' +
-            esc(k.text) + '</span></div>';
+            md(k.text) + '</span></div>';
         }).join('') + '</div>';
       $('ch-g-key').querySelectorAll('.sol-row').forEach(function (row) {
         row.onclick = function () { show(parseInt(row.getAttribute('data-n'), 10)); };
@@ -51129,13 +51293,16 @@ var ChessApp = (function () {
       sync();
       if (bd.isMate(CH.other(mover))) {
         done = true;
+        /* ★ 比较要用 moverChar（'w'/'b'），不能拿 mover（1/2）去 === 'w' ——
+           那样永远不成立，白方将杀也会念成「黑方把对方将死了」。 */
         status('<div class="feedback ok"><div class="head">将杀</div><p>' +
-          (mover === 'w' ? '白方' : '黑方') + '把对方将死了。</p></div>');
+          (moverChar === 'w' ? '白方' : '黑方') + '把对方将死了。</p></div>');
       } else if (bd.isStalemate(CH.other(mover))) {
         done = true;
         status('<div class="feedback"><div class="head">逼和</div><p>对方没有合法着法但也没被将军 —— 和棋。</p></div>');
       } else {
-        status('<p class="small muted">轮' + (bd.toMove === 'w' ? '白' : '黑') + '方走。</p>');
+        /* 同上：bd.toMove 是引擎颜色值，得先 colorChar 再比 */
+        status('<p class="small muted">轮' + (CH.colorChar(bd.toMove) === 'w' ? '白' : '黑') + '方走。</p>');
       }
     }
 
@@ -51241,7 +51408,14 @@ var ChessApp = (function () {
       }
       var q = {};
       for (var k in queue[idx]) if (Object.prototype.hasOwnProperty.call(queue[idx], k)) q[k] = queue[idx][k];
+      /* ★ 一次性守卫：战术页的 finish() 不只被「走对」触发，「重来」之后再走一遍、
+         或「看答案」那条 setTimeout 动画链跑完都会再调一次 onDone ——
+         没有这道闸门就会**同一题重复计分、重复进下一题**（一次跳两题）。
+         将棋那边的随机测验（shogi-app.js:157）早就是这么写的，这边补齐。 */
+      var answered = false;
       q.onDone = function (usedAnswer) {
+        if (answered) return;
+        answered = true;
         if (!usedAnswer) ok++;
         idx++;
         var b = document.createElement('button');
@@ -52502,9 +52676,17 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     ctx.font = Math.max(9, Math.round(c * 0.3)) + 'px ' + FONT;
     var tagW = ctx.measureText(who).width + c * 0.16;
     ctx.restore();
-    /* 行顶边 y —— 棋子的方块画在 top + 0.43c，高 0.88c，所以命中框取 [top, top + 0.86c] */
+    /* 行顶边 y —— 棋子的方块画在 top + 0.43c，高 0.88c，所以命中框取 [top, top + 0.86c]
+       ★ 上排（后手）原来算的是 `by - margin*1.2 - c*0.92`。把 by = handH + margin、
+         handH = round(0.92c) 代进去，得到的其实是 **-0.2*margin** —— 一个负数：
+         行顶边跑到画布上缘之外，后手那排驹的尖头被裁掉约 5px（margin=20 时 4px，
+         盘越宽裁得越多），而下排 `board底 + 0.5*margin` 是好好留了白的，两边不对称。
+         现在按行高反推：让上排**下边缘**离棋盘顶边留 0.5*margin，与下排离棋盘底边
+         的 0.5*margin 正好镜像；行高 0.86c，于是上缘自然剩下
+         by - 0.5margin - 0.86c ≈ 0.06c + 0.5margin —— 恒为正，不会再被裁。
+         只动这一个数：by / handH / h 全部不变，所以整块布局不会被挤下去。 */
     var top = (color === 2)
-      ? this.by - this.margin * 1.2 - c * 0.92
+      ? this.by - c * 0.86 - this.margin * 0.5
       : this.by + c * SIZE + this.margin * 0.5;
     return { who: who, tagW: tagW, top: top, x0: this.bx + tagW };
   };
@@ -54832,7 +55014,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
   }
   /* 词典正文里的 **重点** 要变成粗体 —— 先转义再替换，顺序不能反（否则 <b> 也会被转义） */
   function md(s) {
-    return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+    /* 2026-10-14：允许跨行配对 + 兜底剥掉落单的 **（与 app.js / glossary-ui.js 同步） */
+    return esc(s).replace(/\*\*([\s\S]+?)\*\*/g, '<b>$1</b>').replace(/\*\*/g, '');
   }
   function el(id) { return document.getElementById(id); }
   function go(hash) { location.hash = hash; }
@@ -55663,10 +55846,26 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       el('ts-promo-no').onclick = function () { box.innerHTML = ''; tryPlay({ f: from, t: to, p: 0 }); };
     }
 
+    /* 比对一手棋：除了起点／落点／打驹，**升变与否（p）也必须比**。
+       ★ 原来只比 f/t（和 drop）：ts002 首手「６三飛成」就算选了「不成」也算对、
+         ply 照样推进，可正解第三手是「７二龍」—— 盘上那枚飞车根本没成，
+         于是后面一步接不上，整道题卡在半路只能重来。
+       p 在题库里的语义（对着 tools/tsume-gen.js 生成的 moves 逐条核过）：
+         · 打驹的期望不带 p —— 打驹不可能升变
+         · p:1 = 必须成（成飛／成桂…）
+         · p:0 有两种：① 能成而数据故意不成（ts012 的「２一飛」就是行棋不成，
+             不能反过来把它判错）；② 这枚驹根本升不了（金／已升变的驹／两头都不在敌阵）
+         · 「没得选」的手要用 promoVariants 认：落点是死地（步香到最后一段、桂到最后两段）
+           时引擎 play() 自己强制升变（shogi-engine.js:233），而界面上只在
+           promoVariants().length>1 时才问「成不成」—— 用户那头永远只能交 p:0。
+           所以这种手**不许拿 p 判错**，否则 ts006 首手「８一桂成」反而变成正解走不通。 */
     function same(a, b) {
       if (!!b.drop !== !!a.drop) return false;
       if (a.drop) return a.drop === b.drop && a.to === b.to;
-      return a.f === b.f && a.t === b.t;
+      if (a.f !== b.f || a.t !== b.t) return false;
+      var vs = board.promoVariants(a.f, a.t, board.toMove);   /* [false] / [true] / [false,true] */
+      if (vs.length < 2) return true;        /* 升不了 或 必须升：成不成都不由用户，跳过 p */
+      return (!!a.p) === (!!b.p);            /* 可成可不成：期望写的是哪种，就得走哪种 */
     }
 
     /* 用户走一手：与正解比对 */
@@ -55696,7 +55895,20 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       var m = q.moves[ply], color = board.toMove, r;
       if (m.s !== 'g') return;
       r = m.drop ? board.drop(m.drop, m.to, color) : board.play(m.f, m.t, color, !!m.p);
-      if (!r.ok) return;
+      /* ★ 原来这里是 `if (!r.ok) return;` —— 一声不响。屏幕上留着上一手的绿色
+         「对 —— 继续」，ply 不动、棋盘不动，用户只能干等着或点「重来」碰运气。
+         诘将棋的题库（SHOGI_TSUME）每条只存**一路**正解，没有备选应手可走
+         （带 q.replies 全部应法的是手筋页 shogi-next.js，那是另一套数据），
+         所以这里唯一能做的就是**把话说明白**：哪一手接不上、为什么、下一步该怎么办。 */
+      if (!r.ok) {
+        status('<div class="feedback no"><div class="head">对方的应手走不出来</div>' +
+          '<p>题库里第 ' + (ply + 1) + ' 手' + (q.solution[ply] ? '「' + esc(q.solution[ply]) + '」' : '') +
+          '在当前局面上落不下去' + (r.reason ? '（' + esc(r.reason) + '）' : '') +
+          ' —— 前面某一手（多半是升变）走得和正解不一样，手顺就接不上了。' +
+          '点「重来」按正解再走一遍，或点「看答案」一手一手看。</p></div>');
+        clearPick(); sync();
+        return;
+      }
       ply++;
       sync();
       if (ply >= q.moves.length) finishNow();
@@ -56572,33 +56784,14 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
   syncHeaderH();
   window.addEventListener('resize', syncHeaderH);
 
-  /* ================= 进度存储 ================= */
-  var KEY = 'xuanqing-qidian-v1';
-  var store = {
-    data: { lessons: {}, problems: {} },
-    load: function () {
-      try {
-        var raw = localStorage.getItem(KEY);
-        if (raw) {
-          var o = JSON.parse(raw);
-          if (o && typeof o === 'object') {
-            this.data.lessons = o.lessons || {};
-            this.data.problems = o.problems || {};
-          }
-        }
-      } catch (e) { /* 忽略 */ }
-      return this.data;
-    },
-    save: function () {
-      try { localStorage.setItem(KEY, JSON.stringify(this.data)); } catch (e) { /* 忽略 */ }
-    },
-    lessonDone: function (id) { return !!this.data.lessons[id]; },
-    markLesson: function (id) { this.data.lessons[id] = 1; this.save(); },
-    probState: function (id) { return this.data.problems[id] || 0; },
-    markProblem: function (id, ok) { this.data.problems[id] = ok ? 1 : 2; this.save(); },
-    reset: function () { this.data = { lessons: {}, problems: {} }; this.save(); }
-  };
-  store.load();
+  /* ================= 进度存储：已移除（2026-10-14）=================
+     这里原本有一整套 localStorage 进度存储（键 xuanqing-qidian-v1），
+     但 `lessonDone` / `probState` / `reset` 全项目**无一处调用** —— 只写不读。
+     实测：在真产物上逛几个页面，本地就悄悄落下 {"lessons":{"l1":1,...}}。
+     这与 README 的「进度不记」以及本文件自评模块自己写的纪律
+     （「一律不写 localStorage、不累计、不显示百分比 —— 用户明确要求不要学习焦虑」）直接相反。
+     所以把存储连同 6 处写入一起删掉：对外行为不变（本来也不显示），本地不再留痕。
+     将来若真要做学习进度，请重新设计：显式呈现给用户 + 给一个清除入口，再引回来。 */
 
   /* ================= 工具 ================= */
   function el(id) { return document.getElementById(id); }
@@ -56612,7 +56805,25 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
   function md(s) {
     return esc(s)
       .replace(/\\n/g, '</p><p>')
-      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+      /* ★ 2026-10-14：数据里除了「反斜杠+n」这个约定，也有直接写真的换行的（术语「腾挪」就是这样，
+         结果 `**…\n…**` 跨行配不上对，页面上就落下裸星号）。真的换行一并当分段。 */
+      .replace(/\r?\n/g, '</p><p>')
+      .replace(/\*\*([\s\S]+?)\*\*/g, '<b>$1</b>')
+      /* 兜底：落单的星号一律剥掉 —— 宁可少一处强调，也不许再把 ** 显示给用户看 */
+      .replace(/\*\*/g, '');
+  }
+
+  /* 卡片摘要、标题这类**纯文本**场合：把 `**粗体**` 标记剥掉、`\n` 换成空格、压掉多余空白。
+     ★ 2026-10-14 修：列表卡片以前直接 esc() 原始文本，于是页面上露出裸的两个星号 ——
+     定式库列表 11 处、国际象棋残局 4 处（数据里写的是 `**大飞罩**` 这种强调）。
+     剥标记的写法在 glossary-ui.js 里早就有，这里收到一处统一用。 */
+  function plain(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\n/g, ' ')
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/\*\*/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /* ---------- 讲解里的坐标 ↔ 棋盘联动 ----------
@@ -56674,6 +56885,11 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
 
   /* 记录当前页面上挂载的棋盘，切换视图时清掉监听 */
   var mounted = [];
+  /* ★ 2026-10-14 补：页面级定时器/监听的清理登记处。
+   *   棋盘视图有 destroy，但各模块自己 setInterval/setTimeout 的东西以前没人管 ——
+   *   名局「自动播放」的 interval 切页后还在每 700ms 全量重放整盘（实测存活）。 */
+  var pageCleanups = [];
+  function addCleanup(fn) { if (typeof fn === 'function') pageCleanups.push(fn); }
   function mountBoard(canvas, opts) {
     var v = new GoBoardView(canvas, opts);
     if (canvas) canvas.__boardView = v;   /* 挂一份引用，方便测试/调试读棋盘状态 */
@@ -56685,6 +56901,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       if (mounted[i].destroy) mounted[i].destroy();
     }
     mounted = [];
+    /* 先清页面级定时器：逐个 try，一个出错不能拖累后面的 */
+    var fns = pageCleanups; pageCleanups = [];
+    for (var c = 0; c < fns.length; c++) { try { fns[c](); } catch (e) { } }
     /* 词典模块（glossary-ui.js）自己管棋盘视图与 window resize 监听，不在上面这个数组里，
        切页时也要一并清掉 —— 否则离开词典页后监听会残留。 */
     if (window.GoGlossary && window.GoGlossary.unmount) {
@@ -57023,23 +57242,35 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     window.scrollTo(0, 0);
   });
 
+  /* 篇章数：以前首页卡片写死「六个篇章」，但 midgame.js 会把 14 堂中盘专题课
+     **并进同一个 global.LESSONS**（见 midgame.js:17/822），并进之后是 7 个篇章。
+     统计口径一律跟着数据走，别再写死数字。 */
+  function countParts(list) {
+    var seen = [];
+    for (var i = 0; i < (list || []).length; i++) if (seen.indexOf(list[i].part) === -1) seen.push(list[i].part);
+    return seen.length;
+  }
+
   /* ================= 首页 ================= */
   function renderHome() {
     /* 词典的真实条数 = GLOSSARY + GLOSSARY_MORE（词典页也是这么合并的）。
        之前首页只算了 GLOSSARY，「94 条」比词典页的 118 条少了 24 条。 */
     var glossaryAll = (window.GLOSSARY || []).concat(window.GLOSSARY_MORE || []);
-    var totalLessons = LESSONS.length + HISTORY.length;
+    /* 「系统教程」和「思维史」是两块不同的东西，以前把它们加成一个数字挂到
+       「N 课系统教程」上（34 + 30 = 64），读者点进系统课程只看到 34 课。分开写。 */
+    var totalCourses = LESSONS.length + HISTORY.length;
 
     var html = '';
     html += '<section class="hero">';
     html += '<h1>从零开始学围棋</h1>';
-    html += '<p class="sub">' + totalLessons + ' 课系统教程，' + PROBLEMS.length +
+    html += '<p class="sub">' + LESSONS.length + ' 课系统教程 + ' + HISTORY.length +
+      ' 篇思维史（共 ' + totalCourses + ' 课），' + PROBLEMS.length +
       ' 道带完整推理的练习，' + GAMES.length + ' 盘名局详解。所有题目的答案都由程序推演验证过，每道错题都会告诉你「为什么错」，而不是只告诉你「对了」。</p>';
     html += '<p class="sub" style="margin-top:10px"><b>不必按顺序学，也不必有进度压力</b> —— 喜欢哪一块就从哪一块开始，随时可以跳回来。</p>';
     html += '</section>';
 
     html += '<div class="entry-grid">';
-    html += entryCard('lessons', '系统课程', '从认棋盘、数气开始，一路讲到死活、布局、官子和打劫。每一课都配可以动手点的棋盘演示。', LESSONS.length + ' 课 · 六个篇章');
+    html += entryCard('lessons', '系统课程', '从认棋盘、数气开始，一路讲到死活、布局、官子和打劫。每一课都配可以动手点的棋盘演示。', LESSONS.length + ' 课 · ' + countParts(LESSONS) + ' 个篇章');
     html += entryCard('training', '训练方法', '怎么练才有效 —— 怎么做死活题、什么时候该学定式、输棋之后做什么。讲方法，不堆知识。',
       (typeof TRAINING !== 'undefined' ? TRAINING.length + ' 课' : '构建中'));
     html += entryCard('history', '围棋思维史', '座子时代、秀策流、新布局革命、韩国流、AI 时代 —— 每个时代的人为什么那样下棋，那些下法今天还用不用。', HISTORY.length + ' 课 · 七个时代');
@@ -57137,7 +57368,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     for (i = 0; i < L.sections.length; i++) {
       var s = L.sections[i];
       html += '<div class="sec">' + h('h3', null, esc(s.h));
-      for (var j = 0; j < s.p.length; j++) html += '<p>' + esc(s.p[j]) + '</p>';
+      /* ★ 2026-10-14：正文段落要走 md() —— 课程正文里用了 **强调** 标记，
+         走 esc() 会把裸星号原样显示出来（第 20 课「找劫材」就是这么露出来的）。
+         md() 内部先 esc 再格式化，所以转义并没有丢。思维史/训练法的同位置早就是 md()。 */
+      for (var j = 0; j < s.p.length; j++) html += '<p>' + md(s.p[j]) + '</p>';
       html += '</div>';
     }
 
@@ -57153,7 +57387,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
 
     if (L.key) {
       html += '<div class="keybox"><div class="t">本课要点</div><ul>';
-      for (i = 0; i < L.key.length; i++) html += '<li>' + esc(L.key[i]) + '</li>';
+      /* 同上：要点条目也可能带 ** 标记，统一走 md() */
+      for (i = 0; i < L.key.length; i++) html += '<li>' + md(L.key[i]) + '</li>';
       html += '</ul></div>';
     }
 
@@ -57164,7 +57399,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     html += '</div>';
 
     app.innerHTML = html;
-    store.markLesson(id);
+    /* 2026-10-14：不再写进度存储（见文件顶部「进度存储：已移除」） */
 
     if (L.demo) mountDemo(L.demo);
   }
@@ -57221,7 +57456,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       var s = steps[i];
       view.setStones(s.stones || []);
       view.setMarks(s.marks || []);
-      say.textContent = s.t;
+      /* 演示旁白用的是 textContent（不解析 HTML），所以 ** 会原样露出来
+         （思维史第 7/8/10 课的「小目」就是这样）。这里不能塞 <b>，
+         改成把标记剥掉的纯文本 plain()。 */
+      say.textContent = plain(s.t);
       var dots = '';
       for (var k = 0; k < steps.length; k++) dots += '<i class="' + (k === i ? 'on' : '') + '"></i>';
       bar.innerHTML = '<button class="btn ghost sm" id="demo-prev">上一步</button>' +
@@ -57383,6 +57621,11 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     var ply = 0;          /* 已走完的手数 */
     var done = false;
     var wrongTries = 0;
+    /* ★ 2026-10-14 修：点了多少次「演示下一步」（系统代走的**用户手**）。
+     *   旧写法在走完时一律 seqFinish(true)，于是全程点演示也算答对，
+     *   随机测验的成绩单会显示「10 / 10 全对」而其中没有一手是读者走的。 */
+    var demoPlies = 0;
+    var replyTimer = null;   /* 「系统应手」那 1 秒的定时器句柄，切页时要清 */
 
     /* 逐手讲解在第一步落子前不剧透 —— 只显示「该你了 / 请继续」 */
     var html = '';
@@ -57399,6 +57642,12 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       '<span class="spacer"></span>' +
       '<button type="button" class="btn ghost sm" id="q-demo">演示下一步</button>' +
       '<button type="button" class="btn ghost sm" id="q-undo">悔一步</button>' +
+      /* ★ 2026-10-14 修：这两个按钮的**事件**在下方一直绑着（:1120 / :1132），
+       *   但外壳里从来没输出过它们 —— 多步题答错时文案还写着「或点『给我提示』」，
+       *   用户去点却什么都没有。提示按 P.steps 是否存在决定出不出（没有渐进提示素材就别许诺）。
+       *   「直接看详解」永远出：它把主线走完并按「未答对」收尾。 */
+      (P.steps && P.steps.length ? '<button type="button" class="btn ghost sm" id="q-hint">给我提示</button>' : '') +
+      '<button type="button" class="btn ghost sm" id="q-show">直接看详解</button>' +
       '<button type="button" class="btn ghost sm" id="q-clear-marks">清除标记</button></div>';
     html += '</div></div>';
     /* 步数进度条 */
@@ -57495,7 +57744,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
               ? ('演示：这一手走 ' + E.toLabel(want, size) + '。稍等，看' + foeName + '怎么应。')
               : ('下对了 —— 稍等，看' + foeName + '怎么应。');
             waiting = true;
-            window.setTimeout(function () {
+            replyTimer = window.setTimeout(function () {
+              replyTimer = null;
               waiting = false;
               if (done) return;
               var rr = bd.play(ri, foe);
@@ -57506,10 +57756,13 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
                 repaint();
                 renderProgress();
               }
-              if (ply >= plan.length) { seqFinish(true); return; }
+              if (ply >= plan.length) { seqFinish(demoPlies === 0); return; }
             }, 1000);
+            /* ★ 2026-10-14 修：这个 1 秒定时器旧代码没留句柄，切页也照样落子重绘
+             *   （实测：落对第一手立刻切页，已销毁的视图上多了一颗子，27→28）。 */
+            addCleanup(function () { if (replyTimer) { clearTimeout(replyTimer); replyTimer = null; } });
           } else {
-            if (ply >= plan.length) { seqFinish(true); return; }
+            if (ply >= plan.length) { seqFinish(demoPlies === 0); return; }
           }
           return;
         } else {
@@ -57517,13 +57770,22 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
           wrongTries++;
           var key = x + ',' + y;
           var why = (P.wrongAt && P.wrongAt[key]) || null;
+          /* ★ 2026-10-14 修：wrongAt 只按落点存、不分手数。69 道多步题里有 50 道的
+           *   某个 wrongAt 点，同时是这条主线**后面某一手**的正解 —— 中途走到那儿
+           *   再念「第一手不能这么下」就是答非所问。这种情况下宁可用通用提示。 */
+          if (why) {
+            for (var wf = ply; wf < plan.length; wf += 2) {
+              if (plan[wf] && plan[wf][0] === x && plan[wf][1] === y) { why = null; break; }
+            }
+          }
           if (tip) tip.textContent = '这一点不行。';
           var old = fb.querySelector('.seq-wrong');
           if (old) old.remove();
           fb.insertAdjacentHTML('afterbegin',
             '<div class="feedback no seq-wrong"><div class="head">这一点不行</div>' +
             '<p>' + (why ? linkCoords(why, size) : fallbackHint()) + '</p>' +
-            '<p class="small muted">可以点「悔一步」回到上一步，或点「给我提示」。</p></div>');
+            '<p class="small muted">可以点「悔一步」回到上一步' +
+            (P.steps && P.steps.length ? '，或点「给我提示」。' : '，或点「直接看详解」跟着走一遍。') + '</p></div>');
         }
     }
     repaint();
@@ -57550,7 +57812,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       done = true;
       /* 走完了：绿点/金点都不必再留，避免和讲解联动的序号标记混在一起。 */
       baseMarks = []; userLastMove = null; repaint();
-      if (cfg.track) store.markProblem(P.id, ok);
+      /* 同上：cfg.track 保留但不落盘，答对答错都不留记录 */
       /* 末尾手数说明：把 stepNotes 全部展开（此时已无剧透顾虑） */
       var out = '';
       out += '<div class="feedback ok"><div class="head">' + (ok ? '走完了 —— 这正是古谱的正解' : '这一类变化') + '</div>' +
@@ -57656,6 +57918,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       if (done || waiting) return;
       if (ply >= plan.length) return;
       if (ply % 2 !== 0) return;          /* 只有轮到用户时才能演示 */
+      demoPlies++;                        /* 这一手是电脑代走的，别记成读者走的 */
       var step = plan[ply];
       tryPlay(step[0], step[1], true);
     });
@@ -57868,6 +58131,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     /* 正确答案的文字形态：选择题给选项文字，棋盘题给坐标 */
     function answerLabel() {
       if (P.kind === 'choice') return '「' + P.answers[0] + '」';
+      /* 多步题没有 answers（77 题里 69 题如此）—— 以前这里直接 P.answers.length 会炸。
+         目前 `brief` 恒为 false 所以走不到，但同一个坑不能留着等下一次。 */
+      if (!Array.isArray(P.answers)) return quizAnswer(P);
       var parts = [];
       for (var k = 0; k < P.answers.length; k++) {
         parts.push(E.toLabel(P.answers[k][1] * P.size + P.answers[k][0], P.size));
@@ -57948,7 +58214,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     function finish(ok, picked, revealed) {
       answered = true;
       /* 「直接看详解」不算答对，不写进度 */
-      if (cfg.track && !revealed) store.markProblem(P.id, ok);
+      /* 同上：不再落盘 */
       /* 换了一批讲解，上一批的临时高亮作废 */
       linkMarks = []; activeRow = -1; chipSel = [];
       fb.innerHTML = feedbackHTML(ok, picked, revealed);
@@ -57981,7 +58247,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
             fb.innerHTML = '<div class="feedback no wrong-note"><div class="head">这一点不行</div>' +
               '<p>' + esc(consequenceText(a)) + '</p>' +
               '<p class="small muted">再试一次，或者点「给我提示」。</p></div>' + fb.innerHTML;
-            if (cfg.track) store.markProblem(P.id, false);
+            /* 同上：不再落盘 */
             return;
           }
           finish(false, lbl);
@@ -58138,7 +58404,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       if (target) setTimeout(function () { target.scrollIntoView({ block: 'start' }); }, 60);
     }
 
-    app.addEventListener('click', function (e) {
+    /* ★ 2026-10-14 修：以前绑在**常驻的 #app** 上，每进一次词典页就多挂一个 handler，
+       挂到第二个之后点卡片会被 toggle 两下 = 看起来「点不开」。
+       改绑每次重建的列表容器（#g-list），一次渲染一个 handler，天然不累积。 */
+    (el('g-list') || app).addEventListener('click', function (e) {
       var rel = e.target.closest('.grel-btn');
       if (rel) {
         e.stopPropagation();
@@ -58206,7 +58475,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       '<li><b>这块棋有几口气？</b>摆好局面，点「显示所有棋子的气」，每个棋块的气都会标出来。落子提子后会立刻重算。</li>' +
       '<li><b>这个点能不能下？</b>直接点，不能下会告诉你原因（禁入点 / 打劫 / 有子）。</li>' +
       '<li><b>这个眼是真的还是假的？</b>点「判断真眼假眼」，程序按规则帮你判定。</li>' +
-      '<li><b>现在谁的地多？</b>点「数目」，按中国规则数子法算给你看。</li>' +
+      '<li><b>现在谁的地多？</b>点「数目」，按面积法粗算给你看（不判死子、不拆双活，摆棋练习够用，终局结论不算）。</li>' +
       '</ul>';
     html += '<p class="small muted" style="margin-bottom:0"><b>为什么要用 19 路？</b>正式对局都是 19 路。小棋盘（9 路）看着清楚，但它没有中腹、边角的空间感也完全不同 —— 只在练习局部死活时才用得上。</p>';
     html += '</div>';
@@ -58349,7 +58618,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       }
       view.setMarks(marks);
       info.textContent = n ? '绿色圈 = 黑棋的真眼，红叉 = 白棋的真眼。'
-        : '目前盘面上没有完整的真眼。真眼需要周围和斜角都归一方所有。';
+        : '目前盘面上没有完整的真眼。真眼要求四个正交邻点都归一方，' +
+          '且斜角上没有对方子（中路点最多容一个）。';
     };
 
     el('f-score').onclick = function () {
@@ -58359,9 +58629,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
         el('f-libs').textContent = '显示所有棋子的气';
       }
       var sc = bd.score(7.5);
-      info.textContent = '按中国规则数子法：黑 ' + sc.black + ' 目，白 ' + sc.white +
-        ' 目（含贴目 7.5），黑棋' + (sc.diff > 0 ? '领先 ' + sc.diff : '落后 ' + (-sc.diff)) +
-        ' 目。注意：只有被单方围住的空点才算地，双方都接触的空点不算。';
+      info.textContent = '面积法粗算（黑子 + 黑独占地盘，白同理，黑贴 7.5）：黑 ' + sc.black +
+        '，白 ' + sc.white + '，黑棋' + (sc.diff > 0 ? '领先 ' + sc.diff : '落后 ' + (-sc.diff)) +
+        '。★ 这只是摆棋用的粗算：它不判死子、不拆双活，双方都接触的空点一律不算地。' +
+        '盘上还有死子或双活时，这个数字不能当终局结果。';
     };
 
     el('f-clear').onclick = function () {
@@ -58475,7 +58746,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     html += '</div>';
 
     app.innerHTML = html;
-    store.markLesson(id);
+    /* 2026-10-14：不再写进度存储（见文件顶部「进度存储：已移除」） */
     if (L.demo) mountDemo(L.demo);
   }
 
@@ -58504,12 +58775,18 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
   function boardAt(moves, n, size, setup) {
     var sz = size || 19;
     var bd = new Board(sz);
+    /* ★ 2026-10-14 修：这一路以前把 `play()` 的返回值丢掉 ——
+     *   某一手落不下去（撞让子 / 坐标录错）时盘面静默不变，
+     *   而标题照样写「第 196 手 黑 D4」，读者看到的就是「手数在走、棋盘不动」。
+     *   现在记下来，交给页面显式提示。 */
+    bd.skipped = {};
     if (setup) {
       var put = function (list, color) {
         for (var k = 0; k < (list || []).length; k++) {
           var pt = list[k];
           if (pt[0] >= 0 && pt[1] >= 0 && pt[0] < sz && pt[1] < sz) {
-            bd.play(bd.idx(pt[0], pt[1]), color);
+            var sr = bd.play(bd.idx(pt[0], pt[1]), color);
+            if (!sr.ok) bd.skipped['setup-' + pt[0] + ',' + pt[1]] = sr.reason;
           }
         }
       };
@@ -58528,8 +58805,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       if (mv === 'pass') { bd.pass(color); continue; }
       var x = KATA_LETTERS.indexOf(mv[0]);
       var y = sz - parseInt(mv.slice(1), 10);
-      if (x < 0 || y < 0 || x >= sz || y >= sz) continue;
-      bd.play(bd.idx(x, y), color);
+      if (x < 0 || y < 0 || x >= sz || y >= sz) { bd.skipped[i + 1] = 'out'; continue; }
+      var mr = bd.play(bd.idx(x, y), color);
+      if (!mr.ok) bd.skipped[i + 1] = mr.reason;
     }
     return bd;
   }
@@ -58718,9 +58996,11 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       return null;
     }
 
+    var shownBoard = null;   /* 当前这一屏实际摆出来的棋盘（用来查有没有落不下去的手） */
     function show(n) {
       cur = Math.max(0, Math.min(n, moves.length));
       var bd = boardAt(moves, cur, size, g.setup);
+      shownBoard = bd;
       view.setStones(GoBoardView.fromEngine(bd));
       if (cur > 0) {
         var last = moves[cur - 1];
@@ -58760,6 +59040,15 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       var k = keyAt(cur);
       var note = (g.moveNotes && g.moveNotes[cur]) || '';
       var out = '';
+      /* ★ 棋谱里有落不下去的手时，别再让盘面「悄悄不动」—— 明说这一手没摆上，
+         并交代多半是数据问题（让子摆错 / 坐标录错），不影响其余各手回放。 */
+      var skipReason = (shownBoard && shownBoard.skipped) ? shownBoard.skipped[cur] : null;
+      if (skipReason) {
+        out += '<div class="feedback no" style="margin:0 0 10px"><div class="head">这一手没能摆上棋盘</div>' +
+          '<p class="small">' + esc(reasonText(skipReason) || '这一点不合规则') +
+          ' —— 多半是本局的让子或坐标录入有误，已记入待修清单。' +
+          '其余各手的回放不受影响，但这一手的绿点请当作没有。</p></div>';
+      }
       if (k) {
         out += '<div class="principle" style="margin-top:0"><b>' + esc(k.label) + '</b> —— 这是本局最关键的一手之一，详情见下方「关键手」。</div>';
       }
@@ -58789,6 +59078,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     }
 
     var timer = null;
+    /* ★ 2026-10-14 修：以前这个 interval 只活在闭包里，切页后照样每 700ms 把整盘
+     *   从头重放一遍（280 手的盘要空转三分钟）。登记到 pageCleanups，切页即停。 */
+    addCleanup(function () { if (timer) { clearInterval(timer); timer = null; } });
     function playPause() {
       if (timer) { stopPlay(); return; }
       el('g-play').textContent = '暂停';
@@ -58931,7 +59223,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
           : (/淘汰|不用/.test(j.stillUsed || '') ? '<span class="pill gray">已淘汰</span>' : '');
         html += '<button class="entry" onclick="location.hash=\'#/joseki/' + j.id + '\'">' +
           '<div class="t">' + esc(j.name) + ' ' + badge + '</div>' +
-          '<div class="d">' + esc(j.conclusion || j.why || '') .slice(0, 46) + '…</div>' +
+          '<div class="d">' + esc(plain(j.conclusion || j.why || '').slice(0, 46)) + '…</div>' +
           '<div class="m">' + esc(j.years || '') + '　' + esc(j.region || '') + '</div></button>';
       }
       html += '</div>';
@@ -59431,7 +59723,19 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
       onPlay: function (x, y) { playOne(x, y); }
     });
 
+    /* ★ 2026-10-14 修：「看第 k 手」以前只是个纯查看游标 —— 游标后面还留着 n-k 手，
+     *   于是点棋盘会把新子接到**整盘最后**（眼睛看着 3 子，落一子跳到 18 子），
+     *   「悔棋」删的也是最后一手（提示说停在 17 手，盘面从 3 子直接变 17 子）。
+     *   现在统一一条规则：**看到哪儿，就从哪儿继续**（在游标处截断），
+     *   悔棋撤掉的就是**当前看到的这一手**。 */
+    function cutToView() {
+      if (selfReview.viewAt != null && selfReview.viewAt < selfReview.moves.length) {
+        selfReview.moves.length = selfReview.viewAt;
+      }
+    }
+
     function playOne(x, y) {
+      cutToView();
       var upto = selfReview.moves.length;
       var bd = reviewBoard(upto);
       var i = bd.idx(x, y);
@@ -59462,7 +59766,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
 
       if (typeof notice === 'string') info.textContent = notice;
       else if (!n) info.textContent = '在棋盘上点一点，摆第一手（' + (selfReview.first === 'b' ? '黑棋' : '白棋') + '先）。';
-      else if (selfReview.viewAt != null) info.textContent = '正在看第 ' + upto + ' 手时的局面。想继续摆，直接点棋盘就行。';
+      else if (selfReview.viewAt != null) info.textContent =
+        '正在看第 ' + upto + ' 手时的局面。现在点棋盘，就从这一手接着摆（后面原来的记录会被取代）；' +
+        '点「悔棋」撤掉的也是这一手。';
       else info.textContent = '当前第 ' + n + ' 手（' + sideName(selfReview.moves[n - 1].color) + '）。点棋盘继续摆。';
 
       buildSummary();
@@ -59558,7 +59864,13 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
 
     el('sc-undo').onclick = function () {
       if (!selfReview.moves.length) { info.textContent = '还没有落子，没什么可悔的。'; return; }
-      selfReview.moves.pop();
+      if (selfReview.viewAt != null) {
+        /* 正在回看第 k 手 —— 撤掉的就是这一手，而不是整盘最后一手 */
+        if (selfReview.viewAt < 1) { info.textContent = '已经在第一手之前了。'; return; }
+        selfReview.moves.length = selfReview.viewAt - 1;
+      } else {
+        selfReview.moves.pop();
+      }
       selfReview.viewAt = null; selfReview.openK = null;
       drawReview('已悔掉一手，现在停在 ' + selfReview.moves.length + ' 手。');
     };
@@ -59652,6 +59964,30 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     });
   }
 
+  /* 成绩单上「正确答案」那一栏。
+     ★ 题库里有两种形态：选择题（answers 是选项原文）和多步题（根本没有 answers，
+     正解在 plan 里，用户走的是第 0、2、4… 手）。旧代码写死 `P.answers.map(...)`，
+     而 77 题里 69 题是多步题 —— 随机抽 10 题必然含多步题，成绩单必抛 TypeError。
+     这里对三种形态都兜住：choice / 坐标式 answers / plan，全都没有就说「见讲解」。 */
+  function quizAnswer(P) {
+    if (!P) return '—';
+    if (P.kind === 'choice') return (P.answers && P.answers[0]) || '—';
+    if (Array.isArray(P.answers) && P.answers.length) {
+      var sz = P.size || 19;
+      return P.answers.map(function (a) {
+        return Array.isArray(a) ? E.toLabel(a[1] * sz + a[0], sz) : String(a);
+      }).join(' / ');
+    }
+    if (Array.isArray(P.plan) && P.plan.length) {
+      var s = P.size || 19, mine = [];
+      for (var q = 0; q < P.plan.length; q += 2) {
+        if (P.plan[q] && P.plan[q].length >= 2) mine.push(E.toLabel(P.plan[q][1] * s + P.plan[q][0], s));
+      }
+      if (mine.length) return '正解次序：' + mine.join(' → ');
+    }
+    return '见本题讲解';
+  }
+
   function renderQuizScore(host) {
     var rs = quiz.results, okN = 0, i;
     for (i = 0; i < rs.length; i++) if (rs[i].ok) okN++;
@@ -59667,16 +60003,18 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ChessApp;
     html += '<div class="sc-score-list">';
     for (i = 0; i < rs.length; i++) {
       var r = rs[i], P = r.P;
-      var ans = P.kind === 'choice' ? P.answers[0]
-        : P.answers.map(function (a) { return E.toLabel(a[1] * P.size + a[0], P.size); }).join(' / ');
+      var ans = quizAnswer(P);
       var reason = P.principle || (P.solution && P.solution[0]) || '';
       html += '<div class="sc-score-item ' + (r.ok ? 'ok' : 'no') + '">';
       html += '<div class="row" style="margin-bottom:4px"><span class="sc-tag ' + (r.ok ? 'good' : 'bad') + '">' +
         (r.ok ? '答对' : '答错') + '</span><b>第 ' + (i + 1) + ' 题 · ' + P.cat + '</b></div>';
-      html += '<div class="small muted sc-score-ask">' + esc(P.ask) + '</div>';
-      html += '<div class="small" style="margin-top:4px">你的答案：' + esc(r.picked) +
-        '　正确答案：<b>' + esc(ans) + '</b></div>';
-      if (reason) html += '<div class="small muted" style="margin-top:4px">原因：' + esc(reason) + '</div>';
+      /* ★ 2026-10-14：成绩单这几栏以前一律 esc()，而题干/原因里是有 `**强调**` 的
+         —— 02 号（成绩单必崩）修好之后这一页才第一次真正显示出来，一显示就露出星号。
+         题干与原因走 md()（先转义再格式化）；答案两栏是短文本，用 plain() 把标记剥掉即可。 */
+      html += '<div class="small muted sc-score-ask">' + md(P.ask) + '</div>';
+      html += '<div class="small" style="margin-top:4px">你的答案：' + esc(plain(r.picked)) +
+        '　正确答案：<b>' + esc(plain(ans)) + '</b></div>';
+      if (reason) html += '<div class="small muted" style="margin-top:4px">原因：' + md(reason) + '</div>';
       html += '<div style="margin-top:6px"><button class="btn ghost sm" data-goto="' + P.id + '">看这道题的完整推理</button></div>';
       html += '</div>';
     }

@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f7f5f1">
+<!-- ★ 版本号的唯一出处。build.py 会把这里读出来：
+     1) 打进产物头部的注释戳（右键查看源码就能分辨新旧文件）；
+     2) 与页脚那行文字里的版本比对，不一致就**拒绝打包** ——
+     以前这份文件没有任何版本痕迹，新旧产物打开长得一模一样，只能靠哈希区分，
+     换附件时极易搞混（2026-10-14 首相拍板加版本戳并升 v1.1）。 -->
+<meta name="app-version" content="v1.1">
 <title>玄清棋典 · 从零开始学围棋</title>
 <!-- 图标：木色底 + 棋盘格 + 一黑一白两枚子。
      源文件与生成脚本见 assets/icon.svg 与 tools/make_icon.py；
@@ -106,7 +112,7 @@
 
 <footer class="footer">
   <div class="footer-in">
-    <span>玄清棋典 · 全部内容离线运行，不联网、不需要安装任何东西</span>
+    <span>玄清棋典 v1.1 · 全部内容离线运行，不联网、不需要安装任何东西</span>
     <span class="footer-note">规则引擎与题库答案由程序自动验证</span>
   </div>
 </footer>

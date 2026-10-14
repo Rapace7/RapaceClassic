@@ -73,8 +73,18 @@ def build(out_name=DEFAULT_OUT):
         inlined.append(('icon', icon, len(raw)))
 
     # 4) 标注产物信息（方便日后确认是哪个版本打的包）
+    #    ★ 版本号只有一个出处：<meta name="app-version">。
+    #      这里做两件事：把版本打进产物头部的注释戳（右键查看源码就能分辨新旧文件），
+    #      并核对页脚那行文字写的是同一个版本号 —— 有人只改一处就直接拒绝打包。
+    m = re.search(r'<meta name="app-version" content="([^"]+)"', html)
+    if not m:
+        raise SystemExit('src/index.html 里缺少 <meta name="app-version" content="…">，无法打版本戳')
+    ver = m.group(1)
+    if ('玄清棋典 ' + ver) not in html:
+        raise SystemExit('版本号不一致：meta 写的是 %s，但页脚没有「玄清棋典 %s」' % (ver, ver))
     html = html.replace('</title>',
-                        '</title>\n<!-- 由 build.py 打包生成：%d 个文件内联 -->' % len(inlined))
+                        '</title>\n<!-- 玄清棋典 %s · 由 build.py 打包生成：%d 个文件内联 -->'
+                        % (ver, len(inlined)))
 
     out_path = os.path.join(ROOT, out_name)
     with io.open(out_path, 'w', encoding='utf-8', newline='\n') as f:
