@@ -49,6 +49,21 @@
       });
   }
 
+  /* 讲解类散文（这里只有残局题的 principle）用 **这样** 标重点：先 esc 转义，
+     再把成对的 ** 换成 <b> —— 直接 esc() 会把裸的两个星号露在页面上。
+     与 src/app.js 的 md() 保持同一份语义，理由也一并抄过来：
+     · `\n`（反斜杠+n）与真换行都当分段用——principle 目前没有换行，
+       但数据作者以后写多段讲解时不必改渲染；
+     · 允许 ** 跨段配对（分段之后星号落在两段里也要能配上）；
+     · 最后兜底把落单的 ** 剥掉——宁可少一处强调，也不许再把 ** 显示给用户看。 */
+  function md(s) {
+    return esc(s)
+      .replace(/\\n/g, '</p><p>')
+      .replace(/\r?\n/g, '</p><p>')
+      .replace(/\*\*([\s\S]+?)\*\*/g, '<b>$1</b>')
+      .replace(/\*\*/g, '');
+  }
+
   function mountBoard(canvas, opts) {
     var v = global.XQBoard.mount(canvas, opts);
     alive.push(v);
@@ -66,6 +81,26 @@
   function setState(s) { XQApp._state = s; return s; }
 
   function sideName(c) { return c === global.XQ.RED ? '红方' : '黑方'; }
+
+  /* 题库的 toMove 是字符 'r'/'b'，引擎里是数字 XQ.RED / XQ.BLACK。
+     这两层必须在一个地方换算清楚：黑先题（题库 113 道里有 31 道）的初始轮次和
+     全部文案都要跟着题面走，散在各处写三元表达式迟早漏掉一处 —— 之前就是这样，
+     页面把黑先题摆成红先，用户点黑子被当成「还没轮到你」。 */
+  function sideOfChar(ch) { return ch === 'b' ? global.XQ.BLACK : global.XQ.RED; }
+  function sideNameOfChar(ch) { return sideName(sideOfChar(ch)); }
+  /* 讲「封住谁的退路」时说的是将/帅那一方：黑方攻的是红帅，红方攻的是黑将。
+     只有守方是黑时才说「黑将」，红先题的原文一个字都不变。 */
+  function kingWord(c) { return c === global.XQ.BLACK ? '黑将' : '红帅'; }
+
+  /* 题量从数据里数，不写死：这里原本写「31 道题（杀法 16 + 残局 15）」，
+     而 xq-problems2.js 并入后实为 113 道（杀法 46 + 残局 67）—— 数字一写死就等着过期。 */
+  function xqProbs() { return (typeof XQ_PROBLEMS !== 'undefined' && XQ_PROBLEMS) || []; }
+  function xqProbCount() { return xqProbs().length + ' 道题'; }
+  function xqProbCat(cat) {
+    var n = 0;
+    for (var i = 0; i < xqProbs().length; i++) if (xqProbs()[i].cat === cat) n++;
+    return n;
+  }
 
   /* ---------------- 入口 ---------------- */
 
@@ -197,7 +232,7 @@
       '<li><b>入门课</b>：15 课 —— 认棋盘 → 走子规则 → 攻防入门 → 开局要领 → 基本战术，每课配盘面。</li>' +
       '<li><b>规则速查</b>：七种棋子 + 将帅照面，各一张小棋盘，蓝点就是那个子能去的位置。</li>' +
       '<li><b>基本杀法</b>：22 个形，每个形的主变化由求解器求出，不是人写死的。</li>' +
-      '<li><b>残局练习</b>：31 道题（杀法 16 + 残局 15），按难度分入门 / 进阶 / 高级三组。' +
+      '<li><b>残局练习</b>：' + xqProbCount() + '（杀法 ' + xqProbCat('杀法') + ' + 残局 ' + xqProbCat('残局') + '），按难度分入门 / 进阶 / 高级三组。' +
       '答案与「错在哪」都由求解器算过 —— 走错不是判死，是让你读一段为什么。</li>' +
       '<li><b>开局体系</b>：19 种开局，每一种的走法都逐手过了规则引擎。</li>' +
       '<li><b>名局讲解</b>：9 局共 910 手逐手讲解；棋谱取自公开棋谱库并逐手走通验证，' +
@@ -636,10 +671,15 @@
       '<span class="pill gray">' + (p.toMove === 'r' ? '红先' : '黑先') + '</span>' +
       '<span class="spacer"></span>' +
       '<span class="small muted">第 ' + (pos + 1) + ' / ' + list.length + ' 题</span></div>';
+    /* 先手方（用户要执的一方）与被杀的一方都从题面取 —— 这几句文案以前写死「红方」「黑方」，
+       黑先题就会指着用户的对手说「点红方的棋子」，题做不了还不说原因。 */
+    var meName = sideNameOfChar(p.toMove);                  /* 执先做题的一方 */
+    var foeName = sideName(XQ.other(sideOfChar(p.toMove)));  /* 被将死的一方 */
+
     html += '<p class="q-ask">' + esc(p.goal) + '</p>';
     html += '<p class="small muted" style="margin:0">' +
       '能直接将军的着法往往不止一手，能赢的只有一手。想不出来就点「给我提示」，提示一条一条给。' +
-      '目标是把黑方的将/帅<b>将死</b>（或困毙），不是把将吃掉。</p>';
+      '目标是把' + foeName + '的将/帅<b>将死</b>（或困毙），不是把将吃掉。</p>';
     html += '</div>';
 
     /* 左棋盘（吸附）+ 右提示与反馈 —— 与围棋练习页同一套布局类 */
@@ -648,9 +688,9 @@
     html += '<div class="board-holder" style="max-width:580px;margin:0 auto">' +
       '<canvas id="xq-eg-canvas"></canvas></div>';
     html += '<div class="board-bar">' +
-      '<span class="pill wood" id="xq-eg-turn">轮到' + sideName(p.toMove || 'r') + '</span>' +
-      '<span class="small muted" id="xq-eg-tip">点红方棋子选中，再点目标点走子</span></div>';
-    html += '<div class="board-say" id="xq-eg-say">红方先行。点红方的棋子选中它（橙圈），' +
+      '<span class="pill wood" id="xq-eg-turn">轮到' + meName + '</span>' +
+      '<span class="small muted" id="xq-eg-tip">点' + meName + '棋子选中，再点目标点走子</span></div>';
+    html += '<div class="board-say" id="xq-eg-say">' + meName + '先行。点' + meName + '的棋子选中它（橙圈），' +
       '蓝点就是它能走的格；再点目标点走子。</div>';
     html += '</div></div>';
     html += '<div class="row" style="margin-top:16px">' +
@@ -690,7 +730,9 @@
     host.innerHTML = html;
 
     var bd = new XQ.Board();
-    bd.setup(p.pieces);
+    /* 摆子必须连先手一起摆：题库 113 道里 31 道黑先，只传 pieces 的话 setup 把
+       toMove 复位成红，于是黑先题一进来就「还没轮到黑方」，点黑子被拒、题做不了。 */
+    bd.setup(p.pieces, p.toMove);
     var tFrom = bd.idx(p.answers[0].from[0], p.answers[0].from[1]);
     var tTo = bd.idx(p.answers[0].to[0], p.answers[0].to[1]);
     var ansSet = {};
@@ -729,10 +771,13 @@
     /* 跳到「走完 n 手」的局面。
        实现方式是**从头重摆再重放**，而不是在现有局面上 undo ——
        来回前后跳时不用维护撤销栈，也不会因为顺序错乱把场面搞脏。
-       31 道题的主变最长 7 手，重放的代价可以忽略。 */
+       这类主变最长不过七八手，重放的代价可以忽略。
+       （原注释写「31 道题」，那是题库合并前的旧规模，现在 113 道，别再留具体数字。） */
     function applyLine(n) {
       n = Math.max(0, Math.min(line.length, n));
-      bd.setup(p.pieces);
+      /* 重摆时要连同先手方一起摆：「从头开始」之后局面就该回到题面那一手 ——
+         这里漏掉 toMove，黑先题回到原始局面时引擎又认为轮到红方（做对之前的状态就错了）。 */
+      bd.setup(p.pieces, p.toMove);
       var bad = false, k;
       for (k = 0; k < n; k++) {
         var m = line[k];
@@ -818,15 +863,19 @@
     }
 
     /* 走错时的「为什么」：先用题库里同一步的 traps.why（求解器算的），
-       对不上就现场用引擎复算一步 —— 把黑方的应着举出来。 */
+       对不上就现场用引擎复算一步 —— 把守方的应着举出来。
+       守方是谁要看 bd.toMove（走完这一手之后的轮到方），不能写死黑方：黑先题里守方是红方。 */
     function wrongWhy(from, to) {
       var la = XQ.toLabel(from), lb = XQ.toLabel(to);
       var t = trapWhy(p, la, lb);
       if (t) return t;
-      var opp = bd.toMove;                                 /* 这一手走完，轮到黑方 */
+      var opp = bd.toMove;                                 /* 走完这一手，该轮到的是守方 */
+      var foe = sideName(opp);                             /* 红先题=黑方，黑先题=红方 */
+      var me = sideName(XQ.other(opp));                      /* 做题的一方 */
+      var king = kingWord(opp);                            /* 「黑将」/「红帅」 */
       var ms = bd.legalMoves(opp), pick = null, k;
       if (!ms.length) {
-        return '这一手之后黑方无子可动 —— 但题库记录的正解不是它，可能是题库有误，请报给作者。';
+        return '这一手之后' + foe + '无子可动 —— 但题库记录的正解不是它，可能是题库有误，请报给作者。';
       }
       for (k = 0; k < ms.length; k++) {                    /* 优先举「将/帅让开」的应着 */
         if (bd.t[ms[k].from] === 'K') { pick = ms[k]; break; }
@@ -834,11 +883,11 @@
       if (!pick) pick = ms[0];
       var reply = '「' + XQ.toLabel(pick.from) + '-' + XQ.toLabel(pick.to) + '」';
       if (bd.isChecked(opp)) {
-        return '这一手确实将军了，但黑方有应着：黑方可以走 ' + reply + ' 应住，红方的先手就断了。' +
-          '杀棋要先封住黑将的退路，再动手。';
+        return '这一手确实将军了，但' + foe + '有应着：' + foe + '可以走 ' + reply + ' 应住，' +
+          me + '的先手就断了。' + '杀棋要先封住' + king + '的退路，再动手。';
       }
-      return '这一手<b>没有将军</b> —— 轮到黑方，黑方缓过手来了（例如可以先走 ' + reply + '）。' +
-        '杀棋的次序是先封退路、再动手，中间不能给黑方喘气的机会。';
+      return '这一手<b>没有将军</b> —— 轮到' + foe + '，' + foe + '缓过手来了（例如可以先走 ' + reply + '）。' +
+        '杀棋的次序是先封退路、再动手，中间不能给' + foe + '喘气的机会。';
     }
 
     function solutionHTML() {
@@ -857,7 +906,8 @@
         }
         out += '</div>';
       }
-      if (p.principle) out += '<div class="principle"><b>记住这条：</b>' + esc(p.principle) + '</div>';
+      /* principle（「记住这条」）数据里 82/113 条写了 **重点**，走 esc() 会把裸星号露出来 */
+      if (p.principle) out += '<div class="principle"><b>记住这条：</b>' + md(p.principle) + '</div>';
       return out;
     }
 
@@ -897,6 +947,9 @@
        同时**打开逐步演示**并停在第 1 手 —— 之后可以一手一手往下看。
        （原来的实现只走到第一手就没了，多手杀法看不到后面几步。） */
     function finish(from, to, revealed) {
+      /* 走这一手的是谁：此刻 bd.toMove 已经翻到守方，取另一侧就是做题方。
+         必须在 applyLine 重摆之前算出来，否则黑先题会被写成「红方 …：走对了。」 */
+      var me = sideName(XQ.other(bd.toMove));
       solved = true;
       XQApp._state.solved = true;
       hintBox.innerHTML = '';
@@ -914,7 +967,7 @@
       }
       setTurn();
       var mv = XQ.toLabel(from) + '-' + XQ.toLabel(to);
-      sayEl.textContent = '红方 ' + mv + '：' + (revealed ? '这就是正解。' : '走对了。') +
+      sayEl.textContent = me + ' ' + mv + '：' + (revealed ? '这就是正解。' : '走对了。') +
         (line.length > 1
           ? '下面可以用棋盘底下的「下一步」一手一手看完整条杀法（一共 ' + line.length + ' 手）。'
           : '');
@@ -932,7 +985,9 @@
       }
       var color = bd.g[from];
       if (color !== bd.toMove) {
-        sayEl.textContent = '现在轮到' + sideName(bd.toMove) + '走 —— 先点红方的棋子。';
+        /* 「先点谁的棋子」跟着 bd.toMove 走：黑先题点错颜色时，要让他点的是黑子。
+           自由摆棋页（renderBoard 的 onMove）早就是这么写的，这里以前漏成了写死的红方。 */
+        sayEl.textContent = '现在轮到' + sideName(bd.toMove) + '走 —— 先点' + sideName(bd.toMove) + '的棋子。';
         return false;
       }
       var r = bd.play(from, to, color);
@@ -944,7 +999,7 @@
 
       if (ansSet[from + '>' + to]) { finish(from, to, false); return true; }
 
-      /* 走错：先按「走完之后」的局面把黑方的应着算出来，再把这一手撤回去。
+      /* 走错：先按「走完之后」的局面把守方的应着算出来，再把这一手撤回去。
          返回 false 让棋盘保留选中与蓝点，用户可以直接改点别处重试。 */
       wrongN++;
       var why = wrongWhy(from, to);

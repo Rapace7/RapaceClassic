@@ -41,7 +41,8 @@
   }
   /* 词典正文里的 **重点** 要变成粗体 —— 先转义再替换，顺序不能反（否则 <b> 也会被转义） */
   function md(s) {
-    return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+    /* 2026-10-14：允许跨行配对 + 兜底剥掉落单的 **（与 app.js / glossary-ui.js 同步） */
+    return esc(s).replace(/\*\*([\s\S]+?)\*\*/g, '<b>$1</b>').replace(/\*\*/g, '');
   }
   function el(id) { return document.getElementById(id); }
   function go(hash) { location.hash = hash; }
@@ -872,10 +873,26 @@
       el('ts-promo-no').onclick = function () { box.innerHTML = ''; tryPlay({ f: from, t: to, p: 0 }); };
     }
 
+    /* 比对一手棋：除了起点／落点／打驹，**升变与否（p）也必须比**。
+       ★ 原来只比 f/t（和 drop）：ts002 首手「６三飛成」就算选了「不成」也算对、
+         ply 照样推进，可正解第三手是「７二龍」—— 盘上那枚飞车根本没成，
+         于是后面一步接不上，整道题卡在半路只能重来。
+       p 在题库里的语义（对着 tools/tsume-gen.js 生成的 moves 逐条核过）：
+         · 打驹的期望不带 p —— 打驹不可能升变
+         · p:1 = 必须成（成飛／成桂…）
+         · p:0 有两种：① 能成而数据故意不成（ts012 的「２一飛」就是行棋不成，
+             不能反过来把它判错）；② 这枚驹根本升不了（金／已升变的驹／两头都不在敌阵）
+         · 「没得选」的手要用 promoVariants 认：落点是死地（步香到最后一段、桂到最后两段）
+           时引擎 play() 自己强制升变（shogi-engine.js:233），而界面上只在
+           promoVariants().length>1 时才问「成不成」—— 用户那头永远只能交 p:0。
+           所以这种手**不许拿 p 判错**，否则 ts006 首手「８一桂成」反而变成正解走不通。 */
     function same(a, b) {
       if (!!b.drop !== !!a.drop) return false;
       if (a.drop) return a.drop === b.drop && a.to === b.to;
-      return a.f === b.f && a.t === b.t;
+      if (a.f !== b.f || a.t !== b.t) return false;
+      var vs = board.promoVariants(a.f, a.t, board.toMove);   /* [false] / [true] / [false,true] */
+      if (vs.length < 2) return true;        /* 升不了 或 必须升：成不成都不由用户，跳过 p */
+      return (!!a.p) === (!!b.p);            /* 可成可不成：期望写的是哪种，就得走哪种 */
     }
 
     /* 用户走一手：与正解比对 */
@@ -905,7 +922,20 @@
       var m = q.moves[ply], color = board.toMove, r;
       if (m.s !== 'g') return;
       r = m.drop ? board.drop(m.drop, m.to, color) : board.play(m.f, m.t, color, !!m.p);
-      if (!r.ok) return;
+      /* ★ 原来这里是 `if (!r.ok) return;` —— 一声不响。屏幕上留着上一手的绿色
+         「对 —— 继续」，ply 不动、棋盘不动，用户只能干等着或点「重来」碰运气。
+         诘将棋的题库（SHOGI_TSUME）每条只存**一路**正解，没有备选应手可走
+         （带 q.replies 全部应法的是手筋页 shogi-next.js，那是另一套数据），
+         所以这里唯一能做的就是**把话说明白**：哪一手接不上、为什么、下一步该怎么办。 */
+      if (!r.ok) {
+        status('<div class="feedback no"><div class="head">对方的应手走不出来</div>' +
+          '<p>题库里第 ' + (ply + 1) + ' 手' + (q.solution[ply] ? '「' + esc(q.solution[ply]) + '」' : '') +
+          '在当前局面上落不下去' + (r.reason ? '（' + esc(r.reason) + '）' : '') +
+          ' —— 前面某一手（多半是升变）走得和正解不一样，手顺就接不上了。' +
+          '点「重来」按正解再走一遍，或点「看答案」一手一手看。</p></div>');
+        clearPick(); sync();
+        return;
+      }
       ply++;
       sync();
       if (ply >= q.moves.length) finishNow();

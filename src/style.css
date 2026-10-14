@@ -572,6 +572,18 @@ main.wide { max-width: 1360px; }
   .board-holder { max-width: 100%; }
   .lesson-item .d { display: none; }
   .footer-in { flex-direction: column; gap: 5px; }
+
+  /* ★ 2026-10-14 修：手机上导航一行根本摆不下 —— 围棋 11 个按钮实测 496px，
+   *   比 iPhone 的 390px 视口宽出 106px；因为 .nav 是 nowrap + overflow:visible，
+   *   超出去的部分把**整份文档**顶成 814px 宽，于是每一页都要横向拖动
+   *   （围棋溢出 424px、象棋/国际象棋 316px、将棋 328px）。
+   *   作者的两条禁忌都保留：不换行（sticky 顶栏会被顶高、挤占棋盘），不给可见滚动条。
+   *   做法是把它变成「可滑动的一条」：min-width:0 让它能在 flex 里被压缩，
+   *   overflow-x:auto 承接滑动，滚动条藏起来。 */
+  .topbar-in { gap: 10px; }
+  .nav { min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav button { flex: none; }
 }
 
 /* ---------- 名局：分阶段概述 ---------- */

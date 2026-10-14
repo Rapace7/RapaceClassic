@@ -428,7 +428,10 @@ var CHESS = (function () {
     this.halfmove = rec.prevHalf;
     this.toMove = rec.color;
     if (rec.color === BLACK) this.fullmove--;
-    this.moves.pop();
+    /* 只在 rec 确实是栈顶时才弹栈 —— 与象棋 / 将棋引擎同一套写法。
+       以前这里无条件 pop，而调用方（摆棋页的「悔一步」）自己也 pop 了一次，
+       于是按一次悔棋退两手，再悔就开始回滚错误的 rec，盘面与着法记录错位。 */
+    if (this.moves.length && this.moves[this.moves.length - 1] === rec) this.moves.pop();
   };
 
   Board.prototype.isMate = function (color) {

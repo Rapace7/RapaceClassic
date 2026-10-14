@@ -14,7 +14,7 @@
  *   window.XQBoard          xq-board.js      画棋盘（必须有）
  *   window.XQReview         src/xq-review.js  逐手点评引擎（**必须有**）
  *   window.XQ_SELFCHECK     xq-selfcheck.js  常见失误自查表（**必须有**）
- *   window.XQ_PROBLEMS      xq-problems.js  31 道残局（只有「随机测验」需要）
+ *   window.XQ_PROBLEMS      xq-problems.js + xq-problems2.js 合并后的 113 道残局/杀法（只有「随机测验」需要）
  *
  * ⚠️ 接线时注意：逐手点评引擎在 src/xq-review.js，是**浏览器与 Node 通用**的那个文件，
  *    index.html 必须在 xq-selfcheck-ui.js 之前把它引进来：
@@ -28,7 +28,7 @@
  *      送子 / 漏应 / 错过杀棋 / 放对方成杀 / 兑子亏 / 开局毛病 六类都当面说清，
  *      没问题的手也会给一句中性说明（不沉默）。摆完给一份按类型统计的总结。
  *   2) 常见失误自查表：19 条象棋毛病，一条条对着看，可勾选（只存这次打开，刷新即清空）。
- *   3) 随机测验：从 31 道残局里随机抽 5 题，走一手定对错，最后给一张本次成绩单。
+ *   3) 随机测验：从题库 113 道里随机抽 5 题（红先黑先都会抽到），走一手定对错，最后给一张本次成绩单。
  *
  * ── 说明（诚实过头也好过假装）────────────────────────────────
  *   · 逐手点评只做**规则层**的判断，不评论「大局观」「缓手」「棋形」。算不出来的一律不说。
@@ -61,7 +61,8 @@
   /* 自查表的正文用 **这样** 标重点（xq-selfcheck.js 里就是这么写的）。
      先转义、再换成 <b>，别让 ** 原样露在页面上。 */
   function md(s) {
-    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+    /* 2026-10-14：配对后兜底剥掉落单的 **（与其他三个 md() 同步） */
+    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*\*/g, '');
   }
 
   function mountBoard(canvas, opts) {
@@ -94,6 +95,9 @@
   function typeCn(t) { return (global.XQReview && global.XQReview.TYPE_CN && global.XQReview.TYPE_CN[t]) || '子'; }
   function sideName(c) { return c === global.XQ.RED ? '红' : '黑'; }
   function sideCn(c) { return c === global.XQ.RED ? '红方' : '黑方'; }
+  /* 题库的 toMove 是字符 'r'/'b'，引擎里是数字。随机测验抽到的题红先黑先都有
+     （113 道里 31 道黑先），先手方只能问这道题，不能按「默认红先」写死。 */
+  function sideCnOfChar(ch) { return sideCn(ch === 'b' ? global.XQ.BLACK : global.XQ.RED); }
 
   function piecesOf(bd) {
     var out = [], i;
@@ -473,7 +477,7 @@
   }
 
   /* ======================================================================
-   * 三、随机测验（从 31 道残局里抽 5 题）
+   * 三、随机测验（从题库 113 道里抽 5 题）
    * ======================================================================
    * 说明：围棋那边的「随机测验」复用的是 app.js 里的 mountProblemAnswer（带提示 / 陷阱 /
    * 多解判定的那一整套）。那个函数是 app.js 闭包里的私有函数，页面里够不着；
@@ -497,8 +501,9 @@
     var list = allProblems();
     var html = '';
     html += '<div class="card" style="margin-bottom:16px">';
+    /* 「全部红先」这句是错的（题库 113 道里 31 道黑先），改成按题面走 */
     html += '<p style="margin:0 0 8px"><b>随机测验：</b>从 ' + list.length +
-      ' 道残局/杀法里随机抽 5 题（全部红先）。每题只要走出<b>正解那一手</b>就算对，' +
+      ' 道残局/杀法里随机抽 5 题（红先、黑先都会抽到，抽到谁先就执谁）。每题只要走出<b>正解那一手</b>就算对，' +
       '走错了不会判死 —— 会告诉你为什么不行，局面退回你走之前，可以重试或者直接看答案。' +
       '做完给一张本次成绩单，只有这次的结果，不累计、不排名、不存档。</p>';
     html += '</div>';
@@ -517,6 +522,8 @@
     if (quiz.idx >= quiz.list.length) return renderQuizScore(host);
 
     var P = quiz.list[quiz.idx];
+    /* 这一题执先的一方 —— 文案与棋盘朝向都跟着它走，红先题的输出与旧版逐字相同 */
+    var meCn = sideCnOfChar(P.toMove);
     var html = quizHTML();
     html += '<div class="card" style="margin-bottom:14px">';
     html += '<div class="row">' +
@@ -526,15 +533,15 @@
       '<span class="spacer"></span>' +
       '<button class="btn ghost sm" id="xqsc-qnew">换一组题</button></div>';
     html += '<p class="q-ask" style="margin-top:12px">' + esc(P.goal) + '</p>';
-    html += '<p class="small muted" style="margin:0">点红方的棋子选中，再点目标点 —— 走一手定对错。' +
+    html += '<p class="small muted" style="margin:0">点' + meCn + '的棋子选中，再点目标点 —— 走一手定对错。' +
       '想不出来就先点「给我提示」。</p></div>';
     html += '<div class="prob-layout"><div class="prob-board">';
     html += '<div class="demo-wrap"><div class="board-shell">';
     html += '<div class="board-holder" style="max-width:560px;margin:0 auto">' +
       '<canvas id="xqsc-qcanvas"></canvas></div>';
-    html += '<div class="board-bar"><span class="pill wood" id="xqsc-qturn">轮到红方</span>' +
-      '<span class="small muted" id="xqsc-qtip">点红方的棋子选中，再点目标点走子</span></div>';
-    html += '<div class="board-say" id="xqsc-qsay">红方先行。</div>';
+    html += '<div class="board-bar"><span class="pill wood" id="xqsc-qturn">轮到' + meCn + '</span>' +
+      '<span class="small muted" id="xqsc-qtip">点' + meCn + '的棋子选中，再点目标点走子</span></div>';
+    html += '<div class="board-say" id="xqsc-qsay">' + meCn + '先行。</div>';
     html += '</div></div>';
     html += '<div class="row" style="margin-top:14px">' +
       '<button class="btn ghost" id="xqsc-qhint">给我提示</button>' +
@@ -545,7 +552,9 @@
 
     var QXQ = global.XQ;
     var bd = new QXQ.Board();
-    bd.setup(P.pieces);
+    /* 连先手一起摆：只传 pieces 时 setup 把 toMove 复位成红，抽到黑先题就变成
+       「点黑子 → 还没轮到你」，五道题里凡是黑先的那几道一律做不了。 */
+    bd.setup(P.pieces, P.toMove);
     var ansSet = {}, i;
     for (i = 0; i < (P.answers || []).length; i++) {
       ansSet[bd.idx(P.answers[i].from[0], P.answers[i].from[1]) + '>' +
@@ -558,7 +567,8 @@
     var solved = false, hintIdx = 0;
 
     var view = mountBoard(el('xqsc-qcanvas'), {
-      side: 'r', interactive: true, onSelect: qSelect, onMove: qMove
+      /* 朝向跟着题面：执黑做题时黑方摆在下方（残局练习页就是这么做的） */
+      side: P.toMove === 'b' ? 'b' : 'r', interactive: true, onSelect: qSelect, onMove: qMove
     });
 
     function qSelect(idx) {
@@ -580,11 +590,15 @@
             esc(P.traps[k].why) + '</p>';
         }
       }
-      if (P.principle) out += '<p class="small" style="margin:10px 0 0"><b>记住这条：</b>' + esc(P.principle) + '</p>';
+      /* principle（「记住这条」）数据里 82/113 条写了 **重点**，走 esc() 会把裸星号露出来 */
+      if (P.principle) out += '<p class="small" style="margin:10px 0 0"><b>记住这条：</b>' + md(P.principle) + '</p>';
       return out;
     }
 
     function finish(from, to, revealed) {
+      /* 走这一手的一方：bd.toMove 已经翻到守方，取另一侧。写死「红方」会让黑先题
+         做完之后显示「红方 B1-C1：走对了。」—— 颜色与用户刚走的子不符。 */
+      var me = sideCn(QXQ.other(bd.toMove));
       solved = true;
       view.setPieces(piecesOf(bd));
       view.setHints([]);
@@ -597,7 +611,7 @@
           return QXQ.toLabel(bd.idx(a.from[0], a.from[1])) + '-' + QXQ.toLabel(bd.idx(a.to[0], a.to[1]));
         }).join(' / ')
       });
-      sayEl.textContent = '红方 ' + mv + (revealed ? '：这就是正解。' : '：走对了。');
+      sayEl.textContent = me + ' ' + mv + (revealed ? '：这就是正解。' : '：走对了。');
       hintBox.innerHTML = '';
       fbBox.innerHTML = '<div class="card" style="margin-top:16px">' + solutionHTML() +
         '<div class="row" style="margin-top:14px"><button class="btn" id="xqsc-qnext">' +
@@ -618,9 +632,11 @@
         return false;
       }
       if (ansSet[from + '>' + to]) { finish(from, to, false); return true; }
-      /* 走错：不是正解。只说这一手本身的事实（有没有将军），不硬凑「黑方会怎么走」——
-         那要算棋，这儿算不出来就不说。局面退回重来。 */
+      /* 走错：不是正解。只说这一手本身的事实（有没有将军），不硬凑「守方会怎么走」——
+         那要算棋，这儿算不出来就不说。局面退回重来。
+         守方 = 走完这一手之后的轮到方（红先题是黑方，黑先题是红方），文案跟着它走。 */
       var gaveCheck = bd.isChecked(bd.toMove);
+      var foeCn = sideCn(bd.toMove);
       bd.undo(r.rec);
       view.setPieces(piecesOf(bd));
       view.setHints([]);
@@ -628,8 +644,8 @@
         '」不是正解 —— 局面已退回你走之前，可以换个着法再试。';
       fbBox.innerHTML = '<div class="feedback no"><div class="head">这一手不行</div>' +
         '<p>你走的是「' + esc(QXQ.toLabel(from) + '-' + QXQ.toLabel(to)) + '」。' +
-        (gaveCheck ? '这一手确实将军了，但黑方有解 —— 杀棋的<b>次序</b>不对。'
-                   : '这一手没有将军，黑方就缓过手来了。') +
+        (gaveCheck ? '这一手确实将军了，但' + foeCn + '有解 —— 杀棋的<b>次序</b>不对。'
+                   : '这一手没有将军，' + foeCn + '就缓过手来了。') +
         '杀棋讲次序：先封退路，再动手，中间不给对方喘气的机会。</p>' +
         '<p class="small muted" style="margin-bottom:0">想不出来就点「给我提示」，提示一条一条给。</p></div>';
       return false;
@@ -679,7 +695,8 @@
       html += '<div class="small muted sc-score-ask">' + esc(P.goal) + '</div>';
       html += '<div class="small" style="margin-top:4px">你走的：' + esc(r.mv) +
         '　正解：<b>' + esc(r.ans) + '</b></div>';
-      if (P.principle) html += '<div class="small muted" style="margin-top:4px">原因：' + esc(P.principle) + '</div>';
+      /* 成绩单上的「原因」就是 principle，同样含 **重点**（与上面 solutionHTML 里同一字段） */
+      if (P.principle) html += '<div class="small muted" style="margin-top:4px">原因：' + md(P.principle) + '</div>';
       html += '</div>';
     }
     html += '</div>';

@@ -103,7 +103,11 @@
     }
 
     this.captured[color] += captured.length;
-    var rec = { i: i, color: color, captured: captured, koBefore: koBefore, koAfter: this.ko, pass: false };
+    /* passBefore：撤销时要一并还原「连续虚着计数」。以前 undo 不还原它，
+       于是「虚着一手 → 落一子 → 悔掉这一子」会把 passCount 从 1 抹成 0，
+       isOver() 跟着判错。围棋侧目前没有代码读 passCount/isOver，但引擎是共享的，
+       留着这个坑等着踩不如现在就填上。 */
+    var rec = { i: i, color: color, captured: captured, koBefore: koBefore, koAfter: this.ko, pass: false, passBefore: this.passCount };
     this.moves.push(rec);
     this.passCount = 0;
     this.toMove = opp;
@@ -115,7 +119,7 @@
     if (rec.pass) {
       this.ko = rec.koBefore;
       this.moves.pop();
-      this.passCount = Math.max(0, this.passCount - 1);
+      this.passCount = (typeof rec.passBefore === 'number') ? rec.passBefore : Math.max(0, this.passCount - 1);
       this.toMove = rec.color;
       return;
     }
@@ -124,6 +128,7 @@
     this.captured[rec.color] -= rec.captured.length;
     this.ko = rec.koBefore;
     this.moves.pop();
+    this.passCount = (typeof rec.passBefore === 'number') ? rec.passBefore : Math.max(0, this.passCount - 1);
     this.toMove = rec.color;
   };
 
@@ -142,7 +147,7 @@
   };
 
   Board.prototype.pass = function (color) {
-    var rec = { pass: true, color: color, captured: [], koBefore: this.ko, koAfter: -1 };
+    var rec = { pass: true, color: color, captured: [], koBefore: this.ko, koAfter: -1, passBefore: this.passCount };
     this.ko = -1;
     this.moves.push(rec);
     this.passCount++;
@@ -153,7 +158,14 @@
   Board.prototype.isOver = function () { return this.passCount >= 2; };
 
   /* 判断空点是否像「真眼」（己方颜色 color 的眼）。
-     用于 AI 不填自己的眼，也用于教学演示。 */
+     用于 AI 不填自己的眼，也用于教学演示。
+
+     教科书画法：四个正交邻点（越界算己方）都归己方，再看**斜角上敌方子的个数** ——
+       · 中路点（4 个斜角都在盘内）：容忍 1 个敌方斜角，两个及以上才是假眼；
+       · 边路 / 角点（斜角只有 1~3 个在盘内）：一个敌方斜角都不许有。
+     ★ 这里数的是「敌方占的斜角」，不是「己方占的斜角」—— 斜角空着不影响真眼。
+       旧写法用 need = inBoard>=4 ? 3 : 1 数己方斜角，两头都错：
+       边上漏判假眼（A16 斜角有一个是白的也算真眼），中路又把真眼误杀（斜角空两个就判假）。 */
   Board.prototype.isTrueEye = function (i, color) {
     if (this.g[i] !== EMPTY) return false;
     var s = this.size, p = this.xy(i), x = p.x, y = p.y;
@@ -162,17 +174,15 @@
       return this.g[yy * s + xx] === color;
     }.bind(this);
     if (!own(x - 1, y) || !own(x + 1, y) || !own(x, y - 1) || !own(x, y + 1)) return false;
-    var dx = [-1, 1, -1, 1], dy = [-1, -1, 1, 1], inBoard = 0, good = 0, k, xx, yy;
+    var dx = [-1, 1, -1, 1], dy = [-1, -1, 1, 1], opp = other(color);
+    var inBoard = 0, foe = 0, k, xx, yy;
     for (k = 0; k < 4; k++) {
       xx = x + dx[k]; yy = y + dy[k];
       if (xx < 0 || yy < 0 || xx >= s || yy >= s) continue;
       inBoard++;
-      if (this.g[yy * s + xx] === color) good++;
+      if (this.g[yy * s + xx] === opp) foe++;
     }
-    if (inBoard < 1) return false;
-    /* 中间点（4 个对角）允许 1 个不是自己；边、角上要求更严 */
-    var need = inBoard >= 4 ? 3 : 1;
-    return good >= need;
+    return foe <= (inBoard >= 4 ? 1 : 0);
   };
 
   /* 面积法数子（中国规则）。komi 为黑贴目数 */
@@ -211,6 +221,9 @@
     b.captured = this.captured.slice();
     b.toMove = this.toMove;
     b.passCount = this.passCount;
+    /* 着手栈也要带上：以前不带，副本上 undo() 会去 pop 一个空数组，
+       与原件的 rec 对不上号（isLegal 的试算-撤销路径正依赖这一点）。 */
+    b.moves = this.moves.slice();
     return b;
   };
 

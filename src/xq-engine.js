@@ -11,7 +11,10 @@
  *   bd.idx(x, y) / bd.xy(i)   坐标换算：x 从 0 起左→右，y 从 0 起上→下，(0,0)=棋盘左上角
  *   bd.play(from, to, color)  走子；返回 {ok:true, rec, captured} 或 {ok:false, reason}
  *                             rec 交给 bd.undo(rec) 可完全回滚
- *   bd.setup([[x,y,color,type], ...])  color 用 'r'/'b'，type 用上面的字母
+ *   bd.setup([[x,y,color,type], ...], toMove)  color 用 'r'/'b'，type 用上面的字母
+ *                             toMove 可选：'r'/'b'（或 XQ.RED/XQ.BLACK）指定摆完轮到谁，
+ *                             省略就是红先。题库里有黑先题，界面必须把它传进来 ——
+ *                             事后再改 bd.toMove 是「所有调用方的义务」，漏一处就静默出错。
  *   XQ.toLabel(i)             转成坐标名
  *
  * ── play 的签名说明（与围棋 play(i, color) 的差异）────────────────
@@ -272,13 +275,20 @@
     return this.isMate(color) && !this.isChecked(color);
   };
 
-  /* 摆局面：[[x, y, color, type], ...]，color 用 'r'/'b'（也接受 1/2） */
-  Board.prototype.setup = function (list) {
+  /* 摆局面：[[x, y, color, type], ...]，color 用 'r'/'b'（也接受 1/2）
+     第二个参数 toMove 可选：'r'/'b'（也接受 XQ.RED/XQ.BLACK），指定摆完之后轮到谁。
+     为什么把先手方做成 setup 的参数，而不是让调用方 setup 完自己补一句 toMove=BLACK：
+       setup 会清空 moves 并把 toMove 复位成 RED，「补一句」是所有调用方的义务 ——
+       漏掉一处就是一次静默的错误（残局题库 113 道里有 31 道黑先，页面全部摆成红先，
+       用户点黑子被当成「还没轮到你」，题根本做不了）。参数比事后赋值更难漏。
+     省略 / 传 'r' 时仍与旧行为逐字一致：红先。 */
+  Board.prototype.setup = function (list, toMove) {
     this.g = new Int8Array(N);
     this.t = new Array(N);
     for (var i = 0; i < N; i++) this.t[i] = null;
     this.moves = [];
-    this.toMove = RED;
+    /* 只认明确的「黑」，其余（含 undefined / null / 'r'）一律红先 —— 老调用点不用改也不会变 */
+    this.toMove = (toMove === BLACK || toMove === 'b' || toMove === 'B') ? BLACK : RED;
     for (var k = 0; k < (list || []).length; k++) {
       var it = list[k];
       if (!it || it.length < 4) continue;

@@ -22,33 +22,14 @@
   syncHeaderH();
   window.addEventListener('resize', syncHeaderH);
 
-  /* ================= 进度存储 ================= */
-  var KEY = 'xuanqing-qidian-v1';
-  var store = {
-    data: { lessons: {}, problems: {} },
-    load: function () {
-      try {
-        var raw = localStorage.getItem(KEY);
-        if (raw) {
-          var o = JSON.parse(raw);
-          if (o && typeof o === 'object') {
-            this.data.lessons = o.lessons || {};
-            this.data.problems = o.problems || {};
-          }
-        }
-      } catch (e) { /* 忽略 */ }
-      return this.data;
-    },
-    save: function () {
-      try { localStorage.setItem(KEY, JSON.stringify(this.data)); } catch (e) { /* 忽略 */ }
-    },
-    lessonDone: function (id) { return !!this.data.lessons[id]; },
-    markLesson: function (id) { this.data.lessons[id] = 1; this.save(); },
-    probState: function (id) { return this.data.problems[id] || 0; },
-    markProblem: function (id, ok) { this.data.problems[id] = ok ? 1 : 2; this.save(); },
-    reset: function () { this.data = { lessons: {}, problems: {} }; this.save(); }
-  };
-  store.load();
+  /* ================= 进度存储：已移除（2026-10-14）=================
+     这里原本有一整套 localStorage 进度存储（键 xuanqing-qidian-v1），
+     但 `lessonDone` / `probState` / `reset` 全项目**无一处调用** —— 只写不读。
+     实测：在真产物上逛几个页面，本地就悄悄落下 {"lessons":{"l1":1,...}}。
+     这与 README 的「进度不记」以及本文件自评模块自己写的纪律
+     （「一律不写 localStorage、不累计、不显示百分比 —— 用户明确要求不要学习焦虑」）直接相反。
+     所以把存储连同 6 处写入一起删掉：对外行为不变（本来也不显示），本地不再留痕。
+     将来若真要做学习进度，请重新设计：显式呈现给用户 + 给一个清除入口，再引回来。 */
 
   /* ================= 工具 ================= */
   function el(id) { return document.getElementById(id); }
@@ -62,7 +43,25 @@
   function md(s) {
     return esc(s)
       .replace(/\\n/g, '</p><p>')
-      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+      /* ★ 2026-10-14：数据里除了「反斜杠+n」这个约定，也有直接写真的换行的（术语「腾挪」就是这样，
+         结果 `**…\n…**` 跨行配不上对，页面上就落下裸星号）。真的换行一并当分段。 */
+      .replace(/\r?\n/g, '</p><p>')
+      .replace(/\*\*([\s\S]+?)\*\*/g, '<b>$1</b>')
+      /* 兜底：落单的星号一律剥掉 —— 宁可少一处强调，也不许再把 ** 显示给用户看 */
+      .replace(/\*\*/g, '');
+  }
+
+  /* 卡片摘要、标题这类**纯文本**场合：把 `**粗体**` 标记剥掉、`\n` 换成空格、压掉多余空白。
+     ★ 2026-10-14 修：列表卡片以前直接 esc() 原始文本，于是页面上露出裸的两个星号 ——
+     定式库列表 11 处、国际象棋残局 4 处（数据里写的是 `**大飞罩**` 这种强调）。
+     剥标记的写法在 glossary-ui.js 里早就有，这里收到一处统一用。 */
+  function plain(s) {
+    return String(s == null ? '' : s)
+      .replace(/\\n/g, ' ')
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/\*\*/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /* ---------- 讲解里的坐标 ↔ 棋盘联动 ----------
@@ -124,6 +123,11 @@
 
   /* 记录当前页面上挂载的棋盘，切换视图时清掉监听 */
   var mounted = [];
+  /* ★ 2026-10-14 补：页面级定时器/监听的清理登记处。
+   *   棋盘视图有 destroy，但各模块自己 setInterval/setTimeout 的东西以前没人管 ——
+   *   名局「自动播放」的 interval 切页后还在每 700ms 全量重放整盘（实测存活）。 */
+  var pageCleanups = [];
+  function addCleanup(fn) { if (typeof fn === 'function') pageCleanups.push(fn); }
   function mountBoard(canvas, opts) {
     var v = new GoBoardView(canvas, opts);
     if (canvas) canvas.__boardView = v;   /* 挂一份引用，方便测试/调试读棋盘状态 */
@@ -135,6 +139,9 @@
       if (mounted[i].destroy) mounted[i].destroy();
     }
     mounted = [];
+    /* 先清页面级定时器：逐个 try，一个出错不能拖累后面的 */
+    var fns = pageCleanups; pageCleanups = [];
+    for (var c = 0; c < fns.length; c++) { try { fns[c](); } catch (e) { } }
     /* 词典模块（glossary-ui.js）自己管棋盘视图与 window resize 监听，不在上面这个数组里，
        切页时也要一并清掉 —— 否则离开词典页后监听会残留。 */
     if (window.GoGlossary && window.GoGlossary.unmount) {
@@ -473,23 +480,35 @@
     window.scrollTo(0, 0);
   });
 
+  /* 篇章数：以前首页卡片写死「六个篇章」，但 midgame.js 会把 14 堂中盘专题课
+     **并进同一个 global.LESSONS**（见 midgame.js:17/822），并进之后是 7 个篇章。
+     统计口径一律跟着数据走，别再写死数字。 */
+  function countParts(list) {
+    var seen = [];
+    for (var i = 0; i < (list || []).length; i++) if (seen.indexOf(list[i].part) === -1) seen.push(list[i].part);
+    return seen.length;
+  }
+
   /* ================= 首页 ================= */
   function renderHome() {
     /* 词典的真实条数 = GLOSSARY + GLOSSARY_MORE（词典页也是这么合并的）。
        之前首页只算了 GLOSSARY，「94 条」比词典页的 118 条少了 24 条。 */
     var glossaryAll = (window.GLOSSARY || []).concat(window.GLOSSARY_MORE || []);
-    var totalLessons = LESSONS.length + HISTORY.length;
+    /* 「系统教程」和「思维史」是两块不同的东西，以前把它们加成一个数字挂到
+       「N 课系统教程」上（34 + 30 = 64），读者点进系统课程只看到 34 课。分开写。 */
+    var totalCourses = LESSONS.length + HISTORY.length;
 
     var html = '';
     html += '<section class="hero">';
     html += '<h1>从零开始学围棋</h1>';
-    html += '<p class="sub">' + totalLessons + ' 课系统教程，' + PROBLEMS.length +
+    html += '<p class="sub">' + LESSONS.length + ' 课系统教程 + ' + HISTORY.length +
+      ' 篇思维史（共 ' + totalCourses + ' 课），' + PROBLEMS.length +
       ' 道带完整推理的练习，' + GAMES.length + ' 盘名局详解。所有题目的答案都由程序推演验证过，每道错题都会告诉你「为什么错」，而不是只告诉你「对了」。</p>';
     html += '<p class="sub" style="margin-top:10px"><b>不必按顺序学，也不必有进度压力</b> —— 喜欢哪一块就从哪一块开始，随时可以跳回来。</p>';
     html += '</section>';
 
     html += '<div class="entry-grid">';
-    html += entryCard('lessons', '系统课程', '从认棋盘、数气开始，一路讲到死活、布局、官子和打劫。每一课都配可以动手点的棋盘演示。', LESSONS.length + ' 课 · 六个篇章');
+    html += entryCard('lessons', '系统课程', '从认棋盘、数气开始，一路讲到死活、布局、官子和打劫。每一课都配可以动手点的棋盘演示。', LESSONS.length + ' 课 · ' + countParts(LESSONS) + ' 个篇章');
     html += entryCard('training', '训练方法', '怎么练才有效 —— 怎么做死活题、什么时候该学定式、输棋之后做什么。讲方法，不堆知识。',
       (typeof TRAINING !== 'undefined' ? TRAINING.length + ' 课' : '构建中'));
     html += entryCard('history', '围棋思维史', '座子时代、秀策流、新布局革命、韩国流、AI 时代 —— 每个时代的人为什么那样下棋，那些下法今天还用不用。', HISTORY.length + ' 课 · 七个时代');
@@ -587,7 +606,10 @@
     for (i = 0; i < L.sections.length; i++) {
       var s = L.sections[i];
       html += '<div class="sec">' + h('h3', null, esc(s.h));
-      for (var j = 0; j < s.p.length; j++) html += '<p>' + esc(s.p[j]) + '</p>';
+      /* ★ 2026-10-14：正文段落要走 md() —— 课程正文里用了 **强调** 标记，
+         走 esc() 会把裸星号原样显示出来（第 20 课「找劫材」就是这么露出来的）。
+         md() 内部先 esc 再格式化，所以转义并没有丢。思维史/训练法的同位置早就是 md()。 */
+      for (var j = 0; j < s.p.length; j++) html += '<p>' + md(s.p[j]) + '</p>';
       html += '</div>';
     }
 
@@ -603,7 +625,8 @@
 
     if (L.key) {
       html += '<div class="keybox"><div class="t">本课要点</div><ul>';
-      for (i = 0; i < L.key.length; i++) html += '<li>' + esc(L.key[i]) + '</li>';
+      /* 同上：要点条目也可能带 ** 标记，统一走 md() */
+      for (i = 0; i < L.key.length; i++) html += '<li>' + md(L.key[i]) + '</li>';
       html += '</ul></div>';
     }
 
@@ -614,7 +637,7 @@
     html += '</div>';
 
     app.innerHTML = html;
-    store.markLesson(id);
+    /* 2026-10-14：不再写进度存储（见文件顶部「进度存储：已移除」） */
 
     if (L.demo) mountDemo(L.demo);
   }
@@ -671,7 +694,10 @@
       var s = steps[i];
       view.setStones(s.stones || []);
       view.setMarks(s.marks || []);
-      say.textContent = s.t;
+      /* 演示旁白用的是 textContent（不解析 HTML），所以 ** 会原样露出来
+         （思维史第 7/8/10 课的「小目」就是这样）。这里不能塞 <b>，
+         改成把标记剥掉的纯文本 plain()。 */
+      say.textContent = plain(s.t);
       var dots = '';
       for (var k = 0; k < steps.length; k++) dots += '<i class="' + (k === i ? 'on' : '') + '"></i>';
       bar.innerHTML = '<button class="btn ghost sm" id="demo-prev">上一步</button>' +
@@ -833,6 +859,11 @@
     var ply = 0;          /* 已走完的手数 */
     var done = false;
     var wrongTries = 0;
+    /* ★ 2026-10-14 修：点了多少次「演示下一步」（系统代走的**用户手**）。
+     *   旧写法在走完时一律 seqFinish(true)，于是全程点演示也算答对，
+     *   随机测验的成绩单会显示「10 / 10 全对」而其中没有一手是读者走的。 */
+    var demoPlies = 0;
+    var replyTimer = null;   /* 「系统应手」那 1 秒的定时器句柄，切页时要清 */
 
     /* 逐手讲解在第一步落子前不剧透 —— 只显示「该你了 / 请继续」 */
     var html = '';
@@ -849,6 +880,12 @@
       '<span class="spacer"></span>' +
       '<button type="button" class="btn ghost sm" id="q-demo">演示下一步</button>' +
       '<button type="button" class="btn ghost sm" id="q-undo">悔一步</button>' +
+      /* ★ 2026-10-14 修：这两个按钮的**事件**在下方一直绑着（:1120 / :1132），
+       *   但外壳里从来没输出过它们 —— 多步题答错时文案还写着「或点『给我提示』」，
+       *   用户去点却什么都没有。提示按 P.steps 是否存在决定出不出（没有渐进提示素材就别许诺）。
+       *   「直接看详解」永远出：它把主线走完并按「未答对」收尾。 */
+      (P.steps && P.steps.length ? '<button type="button" class="btn ghost sm" id="q-hint">给我提示</button>' : '') +
+      '<button type="button" class="btn ghost sm" id="q-show">直接看详解</button>' +
       '<button type="button" class="btn ghost sm" id="q-clear-marks">清除标记</button></div>';
     html += '</div></div>';
     /* 步数进度条 */
@@ -945,7 +982,8 @@
               ? ('演示：这一手走 ' + E.toLabel(want, size) + '。稍等，看' + foeName + '怎么应。')
               : ('下对了 —— 稍等，看' + foeName + '怎么应。');
             waiting = true;
-            window.setTimeout(function () {
+            replyTimer = window.setTimeout(function () {
+              replyTimer = null;
               waiting = false;
               if (done) return;
               var rr = bd.play(ri, foe);
@@ -956,10 +994,13 @@
                 repaint();
                 renderProgress();
               }
-              if (ply >= plan.length) { seqFinish(true); return; }
+              if (ply >= plan.length) { seqFinish(demoPlies === 0); return; }
             }, 1000);
+            /* ★ 2026-10-14 修：这个 1 秒定时器旧代码没留句柄，切页也照样落子重绘
+             *   （实测：落对第一手立刻切页，已销毁的视图上多了一颗子，27→28）。 */
+            addCleanup(function () { if (replyTimer) { clearTimeout(replyTimer); replyTimer = null; } });
           } else {
-            if (ply >= plan.length) { seqFinish(true); return; }
+            if (ply >= plan.length) { seqFinish(demoPlies === 0); return; }
           }
           return;
         } else {
@@ -967,13 +1008,22 @@
           wrongTries++;
           var key = x + ',' + y;
           var why = (P.wrongAt && P.wrongAt[key]) || null;
+          /* ★ 2026-10-14 修：wrongAt 只按落点存、不分手数。69 道多步题里有 50 道的
+           *   某个 wrongAt 点，同时是这条主线**后面某一手**的正解 —— 中途走到那儿
+           *   再念「第一手不能这么下」就是答非所问。这种情况下宁可用通用提示。 */
+          if (why) {
+            for (var wf = ply; wf < plan.length; wf += 2) {
+              if (plan[wf] && plan[wf][0] === x && plan[wf][1] === y) { why = null; break; }
+            }
+          }
           if (tip) tip.textContent = '这一点不行。';
           var old = fb.querySelector('.seq-wrong');
           if (old) old.remove();
           fb.insertAdjacentHTML('afterbegin',
             '<div class="feedback no seq-wrong"><div class="head">这一点不行</div>' +
             '<p>' + (why ? linkCoords(why, size) : fallbackHint()) + '</p>' +
-            '<p class="small muted">可以点「悔一步」回到上一步，或点「给我提示」。</p></div>');
+            '<p class="small muted">可以点「悔一步」回到上一步' +
+            (P.steps && P.steps.length ? '，或点「给我提示」。' : '，或点「直接看详解」跟着走一遍。') + '</p></div>');
         }
     }
     repaint();
@@ -1000,7 +1050,7 @@
       done = true;
       /* 走完了：绿点/金点都不必再留，避免和讲解联动的序号标记混在一起。 */
       baseMarks = []; userLastMove = null; repaint();
-      if (cfg.track) store.markProblem(P.id, ok);
+      /* 同上：cfg.track 保留但不落盘，答对答错都不留记录 */
       /* 末尾手数说明：把 stepNotes 全部展开（此时已无剧透顾虑） */
       var out = '';
       out += '<div class="feedback ok"><div class="head">' + (ok ? '走完了 —— 这正是古谱的正解' : '这一类变化') + '</div>' +
@@ -1106,6 +1156,7 @@
       if (done || waiting) return;
       if (ply >= plan.length) return;
       if (ply % 2 !== 0) return;          /* 只有轮到用户时才能演示 */
+      demoPlies++;                        /* 这一手是电脑代走的，别记成读者走的 */
       var step = plan[ply];
       tryPlay(step[0], step[1], true);
     });
@@ -1318,6 +1369,9 @@
     /* 正确答案的文字形态：选择题给选项文字，棋盘题给坐标 */
     function answerLabel() {
       if (P.kind === 'choice') return '「' + P.answers[0] + '」';
+      /* 多步题没有 answers（77 题里 69 题如此）—— 以前这里直接 P.answers.length 会炸。
+         目前 `brief` 恒为 false 所以走不到，但同一个坑不能留着等下一次。 */
+      if (!Array.isArray(P.answers)) return quizAnswer(P);
       var parts = [];
       for (var k = 0; k < P.answers.length; k++) {
         parts.push(E.toLabel(P.answers[k][1] * P.size + P.answers[k][0], P.size));
@@ -1398,7 +1452,7 @@
     function finish(ok, picked, revealed) {
       answered = true;
       /* 「直接看详解」不算答对，不写进度 */
-      if (cfg.track && !revealed) store.markProblem(P.id, ok);
+      /* 同上：不再落盘 */
       /* 换了一批讲解，上一批的临时高亮作废 */
       linkMarks = []; activeRow = -1; chipSel = [];
       fb.innerHTML = feedbackHTML(ok, picked, revealed);
@@ -1431,7 +1485,7 @@
             fb.innerHTML = '<div class="feedback no wrong-note"><div class="head">这一点不行</div>' +
               '<p>' + esc(consequenceText(a)) + '</p>' +
               '<p class="small muted">再试一次，或者点「给我提示」。</p></div>' + fb.innerHTML;
-            if (cfg.track) store.markProblem(P.id, false);
+            /* 同上：不再落盘 */
             return;
           }
           finish(false, lbl);
@@ -1588,7 +1642,10 @@
       if (target) setTimeout(function () { target.scrollIntoView({ block: 'start' }); }, 60);
     }
 
-    app.addEventListener('click', function (e) {
+    /* ★ 2026-10-14 修：以前绑在**常驻的 #app** 上，每进一次词典页就多挂一个 handler，
+       挂到第二个之后点卡片会被 toggle 两下 = 看起来「点不开」。
+       改绑每次重建的列表容器（#g-list），一次渲染一个 handler，天然不累积。 */
+    (el('g-list') || app).addEventListener('click', function (e) {
       var rel = e.target.closest('.grel-btn');
       if (rel) {
         e.stopPropagation();
@@ -1656,7 +1713,7 @@
       '<li><b>这块棋有几口气？</b>摆好局面，点「显示所有棋子的气」，每个棋块的气都会标出来。落子提子后会立刻重算。</li>' +
       '<li><b>这个点能不能下？</b>直接点，不能下会告诉你原因（禁入点 / 打劫 / 有子）。</li>' +
       '<li><b>这个眼是真的还是假的？</b>点「判断真眼假眼」，程序按规则帮你判定。</li>' +
-      '<li><b>现在谁的地多？</b>点「数目」，按中国规则数子法算给你看。</li>' +
+      '<li><b>现在谁的地多？</b>点「数目」，按面积法粗算给你看（不判死子、不拆双活，摆棋练习够用，终局结论不算）。</li>' +
       '</ul>';
     html += '<p class="small muted" style="margin-bottom:0"><b>为什么要用 19 路？</b>正式对局都是 19 路。小棋盘（9 路）看着清楚，但它没有中腹、边角的空间感也完全不同 —— 只在练习局部死活时才用得上。</p>';
     html += '</div>';
@@ -1799,7 +1856,8 @@
       }
       view.setMarks(marks);
       info.textContent = n ? '绿色圈 = 黑棋的真眼，红叉 = 白棋的真眼。'
-        : '目前盘面上没有完整的真眼。真眼需要周围和斜角都归一方所有。';
+        : '目前盘面上没有完整的真眼。真眼要求四个正交邻点都归一方，' +
+          '且斜角上没有对方子（中路点最多容一个）。';
     };
 
     el('f-score').onclick = function () {
@@ -1809,9 +1867,10 @@
         el('f-libs').textContent = '显示所有棋子的气';
       }
       var sc = bd.score(7.5);
-      info.textContent = '按中国规则数子法：黑 ' + sc.black + ' 目，白 ' + sc.white +
-        ' 目（含贴目 7.5），黑棋' + (sc.diff > 0 ? '领先 ' + sc.diff : '落后 ' + (-sc.diff)) +
-        ' 目。注意：只有被单方围住的空点才算地，双方都接触的空点不算。';
+      info.textContent = '面积法粗算（黑子 + 黑独占地盘，白同理，黑贴 7.5）：黑 ' + sc.black +
+        '，白 ' + sc.white + '，黑棋' + (sc.diff > 0 ? '领先 ' + sc.diff : '落后 ' + (-sc.diff)) +
+        '。★ 这只是摆棋用的粗算：它不判死子、不拆双活，双方都接触的空点一律不算地。' +
+        '盘上还有死子或双活时，这个数字不能当终局结果。';
     };
 
     el('f-clear').onclick = function () {
@@ -1925,7 +1984,7 @@
     html += '</div>';
 
     app.innerHTML = html;
-    store.markLesson(id);
+    /* 2026-10-14：不再写进度存储（见文件顶部「进度存储：已移除」） */
     if (L.demo) mountDemo(L.demo);
   }
 
@@ -1954,12 +2013,18 @@
   function boardAt(moves, n, size, setup) {
     var sz = size || 19;
     var bd = new Board(sz);
+    /* ★ 2026-10-14 修：这一路以前把 `play()` 的返回值丢掉 ——
+     *   某一手落不下去（撞让子 / 坐标录错）时盘面静默不变，
+     *   而标题照样写「第 196 手 黑 D4」，读者看到的就是「手数在走、棋盘不动」。
+     *   现在记下来，交给页面显式提示。 */
+    bd.skipped = {};
     if (setup) {
       var put = function (list, color) {
         for (var k = 0; k < (list || []).length; k++) {
           var pt = list[k];
           if (pt[0] >= 0 && pt[1] >= 0 && pt[0] < sz && pt[1] < sz) {
-            bd.play(bd.idx(pt[0], pt[1]), color);
+            var sr = bd.play(bd.idx(pt[0], pt[1]), color);
+            if (!sr.ok) bd.skipped['setup-' + pt[0] + ',' + pt[1]] = sr.reason;
           }
         }
       };
@@ -1978,8 +2043,9 @@
       if (mv === 'pass') { bd.pass(color); continue; }
       var x = KATA_LETTERS.indexOf(mv[0]);
       var y = sz - parseInt(mv.slice(1), 10);
-      if (x < 0 || y < 0 || x >= sz || y >= sz) continue;
-      bd.play(bd.idx(x, y), color);
+      if (x < 0 || y < 0 || x >= sz || y >= sz) { bd.skipped[i + 1] = 'out'; continue; }
+      var mr = bd.play(bd.idx(x, y), color);
+      if (!mr.ok) bd.skipped[i + 1] = mr.reason;
     }
     return bd;
   }
@@ -2168,9 +2234,11 @@
       return null;
     }
 
+    var shownBoard = null;   /* 当前这一屏实际摆出来的棋盘（用来查有没有落不下去的手） */
     function show(n) {
       cur = Math.max(0, Math.min(n, moves.length));
       var bd = boardAt(moves, cur, size, g.setup);
+      shownBoard = bd;
       view.setStones(GoBoardView.fromEngine(bd));
       if (cur > 0) {
         var last = moves[cur - 1];
@@ -2210,6 +2278,15 @@
       var k = keyAt(cur);
       var note = (g.moveNotes && g.moveNotes[cur]) || '';
       var out = '';
+      /* ★ 棋谱里有落不下去的手时，别再让盘面「悄悄不动」—— 明说这一手没摆上，
+         并交代多半是数据问题（让子摆错 / 坐标录错），不影响其余各手回放。 */
+      var skipReason = (shownBoard && shownBoard.skipped) ? shownBoard.skipped[cur] : null;
+      if (skipReason) {
+        out += '<div class="feedback no" style="margin:0 0 10px"><div class="head">这一手没能摆上棋盘</div>' +
+          '<p class="small">' + esc(reasonText(skipReason) || '这一点不合规则') +
+          ' —— 多半是本局的让子或坐标录入有误，已记入待修清单。' +
+          '其余各手的回放不受影响，但这一手的绿点请当作没有。</p></div>';
+      }
       if (k) {
         out += '<div class="principle" style="margin-top:0"><b>' + esc(k.label) + '</b> —— 这是本局最关键的一手之一，详情见下方「关键手」。</div>';
       }
@@ -2239,6 +2316,9 @@
     }
 
     var timer = null;
+    /* ★ 2026-10-14 修：以前这个 interval 只活在闭包里，切页后照样每 700ms 把整盘
+     *   从头重放一遍（280 手的盘要空转三分钟）。登记到 pageCleanups，切页即停。 */
+    addCleanup(function () { if (timer) { clearInterval(timer); timer = null; } });
     function playPause() {
       if (timer) { stopPlay(); return; }
       el('g-play').textContent = '暂停';
@@ -2381,7 +2461,7 @@
           : (/淘汰|不用/.test(j.stillUsed || '') ? '<span class="pill gray">已淘汰</span>' : '');
         html += '<button class="entry" onclick="location.hash=\'#/joseki/' + j.id + '\'">' +
           '<div class="t">' + esc(j.name) + ' ' + badge + '</div>' +
-          '<div class="d">' + esc(j.conclusion || j.why || '') .slice(0, 46) + '…</div>' +
+          '<div class="d">' + esc(plain(j.conclusion || j.why || '').slice(0, 46)) + '…</div>' +
           '<div class="m">' + esc(j.years || '') + '　' + esc(j.region || '') + '</div></button>';
       }
       html += '</div>';
@@ -2881,7 +2961,19 @@
       onPlay: function (x, y) { playOne(x, y); }
     });
 
+    /* ★ 2026-10-14 修：「看第 k 手」以前只是个纯查看游标 —— 游标后面还留着 n-k 手，
+     *   于是点棋盘会把新子接到**整盘最后**（眼睛看着 3 子，落一子跳到 18 子），
+     *   「悔棋」删的也是最后一手（提示说停在 17 手，盘面从 3 子直接变 17 子）。
+     *   现在统一一条规则：**看到哪儿，就从哪儿继续**（在游标处截断），
+     *   悔棋撤掉的就是**当前看到的这一手**。 */
+    function cutToView() {
+      if (selfReview.viewAt != null && selfReview.viewAt < selfReview.moves.length) {
+        selfReview.moves.length = selfReview.viewAt;
+      }
+    }
+
     function playOne(x, y) {
+      cutToView();
       var upto = selfReview.moves.length;
       var bd = reviewBoard(upto);
       var i = bd.idx(x, y);
@@ -2912,7 +3004,9 @@
 
       if (typeof notice === 'string') info.textContent = notice;
       else if (!n) info.textContent = '在棋盘上点一点，摆第一手（' + (selfReview.first === 'b' ? '黑棋' : '白棋') + '先）。';
-      else if (selfReview.viewAt != null) info.textContent = '正在看第 ' + upto + ' 手时的局面。想继续摆，直接点棋盘就行。';
+      else if (selfReview.viewAt != null) info.textContent =
+        '正在看第 ' + upto + ' 手时的局面。现在点棋盘，就从这一手接着摆（后面原来的记录会被取代）；' +
+        '点「悔棋」撤掉的也是这一手。';
       else info.textContent = '当前第 ' + n + ' 手（' + sideName(selfReview.moves[n - 1].color) + '）。点棋盘继续摆。';
 
       buildSummary();
@@ -3008,7 +3102,13 @@
 
     el('sc-undo').onclick = function () {
       if (!selfReview.moves.length) { info.textContent = '还没有落子，没什么可悔的。'; return; }
-      selfReview.moves.pop();
+      if (selfReview.viewAt != null) {
+        /* 正在回看第 k 手 —— 撤掉的就是这一手，而不是整盘最后一手 */
+        if (selfReview.viewAt < 1) { info.textContent = '已经在第一手之前了。'; return; }
+        selfReview.moves.length = selfReview.viewAt - 1;
+      } else {
+        selfReview.moves.pop();
+      }
       selfReview.viewAt = null; selfReview.openK = null;
       drawReview('已悔掉一手，现在停在 ' + selfReview.moves.length + ' 手。');
     };
@@ -3102,6 +3202,30 @@
     });
   }
 
+  /* 成绩单上「正确答案」那一栏。
+     ★ 题库里有两种形态：选择题（answers 是选项原文）和多步题（根本没有 answers，
+     正解在 plan 里，用户走的是第 0、2、4… 手）。旧代码写死 `P.answers.map(...)`，
+     而 77 题里 69 题是多步题 —— 随机抽 10 题必然含多步题，成绩单必抛 TypeError。
+     这里对三种形态都兜住：choice / 坐标式 answers / plan，全都没有就说「见讲解」。 */
+  function quizAnswer(P) {
+    if (!P) return '—';
+    if (P.kind === 'choice') return (P.answers && P.answers[0]) || '—';
+    if (Array.isArray(P.answers) && P.answers.length) {
+      var sz = P.size || 19;
+      return P.answers.map(function (a) {
+        return Array.isArray(a) ? E.toLabel(a[1] * sz + a[0], sz) : String(a);
+      }).join(' / ');
+    }
+    if (Array.isArray(P.plan) && P.plan.length) {
+      var s = P.size || 19, mine = [];
+      for (var q = 0; q < P.plan.length; q += 2) {
+        if (P.plan[q] && P.plan[q].length >= 2) mine.push(E.toLabel(P.plan[q][1] * s + P.plan[q][0], s));
+      }
+      if (mine.length) return '正解次序：' + mine.join(' → ');
+    }
+    return '见本题讲解';
+  }
+
   function renderQuizScore(host) {
     var rs = quiz.results, okN = 0, i;
     for (i = 0; i < rs.length; i++) if (rs[i].ok) okN++;
@@ -3117,16 +3241,18 @@
     html += '<div class="sc-score-list">';
     for (i = 0; i < rs.length; i++) {
       var r = rs[i], P = r.P;
-      var ans = P.kind === 'choice' ? P.answers[0]
-        : P.answers.map(function (a) { return E.toLabel(a[1] * P.size + a[0], P.size); }).join(' / ');
+      var ans = quizAnswer(P);
       var reason = P.principle || (P.solution && P.solution[0]) || '';
       html += '<div class="sc-score-item ' + (r.ok ? 'ok' : 'no') + '">';
       html += '<div class="row" style="margin-bottom:4px"><span class="sc-tag ' + (r.ok ? 'good' : 'bad') + '">' +
         (r.ok ? '答对' : '答错') + '</span><b>第 ' + (i + 1) + ' 题 · ' + P.cat + '</b></div>';
-      html += '<div class="small muted sc-score-ask">' + esc(P.ask) + '</div>';
-      html += '<div class="small" style="margin-top:4px">你的答案：' + esc(r.picked) +
-        '　正确答案：<b>' + esc(ans) + '</b></div>';
-      if (reason) html += '<div class="small muted" style="margin-top:4px">原因：' + esc(reason) + '</div>';
+      /* ★ 2026-10-14：成绩单这几栏以前一律 esc()，而题干/原因里是有 `**强调**` 的
+         —— 02 号（成绩单必崩）修好之后这一页才第一次真正显示出来，一显示就露出星号。
+         题干与原因走 md()（先转义再格式化）；答案两栏是短文本，用 plain() 把标记剥掉即可。 */
+      html += '<div class="small muted sc-score-ask">' + md(P.ask) + '</div>';
+      html += '<div class="small" style="margin-top:4px">你的答案：' + esc(plain(r.picked)) +
+        '　正确答案：<b>' + esc(plain(ans)) + '</b></div>';
+      if (reason) html += '<div class="small muted" style="margin-top:4px">原因：' + md(reason) + '</div>';
       html += '<div style="margin-top:6px"><button class="btn ghost sm" data-goto="' + P.id + '">看这道题的完整推理</button></div>';
       html += '</div>';
     }

@@ -58,9 +58,23 @@ var CHESS_BOARD = (function () {
     this.flip = !!opts.flip;
     this.onTap = opts.onTap || null;
     this.interactive = opts.interactive !== false;
-    this.size = Math.max(240, opts.size || 480);
+    /* wantSize = 调用方想要的边长；真正的边长在 _layout 里按容器可用宽度收敛。
+       分两个字段是因为 resize() 会改 size，不能拿它当「原始请求」。 */
+    this.wantSize = Math.max(240, opts.size || 480);
+    this.size = this.wantSize;
     this._bind();
     this._layout();
+    /* 窗口尺寸变了（含手机转屏）就重新量容器再画一次。
+       canvas 一旦被路由换掉就不在了，那时顺手把监听摘掉 —— 不留越积越多的僵尸监听。 */
+    var self = this;
+    this._onResize = function () {
+      if (!(typeof document !== 'undefined' && document.body && document.body.contains(self.canvas))) {
+        if (typeof window !== 'undefined') window.removeEventListener('resize', self._onResize);
+        return;
+      }
+      self._layout(); self.draw();
+    };
+    if (typeof window !== 'undefined') window.addEventListener('resize', this._onResize);
     /* ★ 把视图挂到 canvas 上 —— 测试脚本要靠它拿到 margin/cell 去算点击坐标。
        象棋、将棋两个棋盘都是这么做的（__xqView / __shogiView），这里保持一致。 */
     canvas.__chessView = this;
@@ -69,6 +83,13 @@ var CHESS_BOARD = (function () {
 
   ChessBoardView.prototype._layout = function () {
     var dpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1;
+    /* ★ 2026-10-14：以前边长只看 opts（默认 480），从不看容器多宽 ——
+       手机上内容区只有 360px，棋盘硬占 480px，把整页顶出横向滚动
+       （实测 chess/board 与 chess/selfcheck 各溢出 105px，是全站唯一还剩的两处）。
+       现在按父容器可用宽度收敛：桌面容器比 480 宽，行为一字不变；窄屏才缩小。 */
+    var avail = 0, p = this.canvas.parentElement;
+    while (p && !avail) { avail = p.clientWidth; p = p.parentElement; }
+    this.size = (avail && avail < this.wantSize) ? Math.max(240, avail) : this.wantSize;
     this.w = this.size;
     this.margin = Math.round(this.size * 0.052);         /* 留给行列号 */
     this.cell = (this.size - this.margin * 2) / SIZE;
@@ -123,7 +144,11 @@ var CHESS_BOARD = (function () {
   };
   ChessBoardView.prototype.setCheck = function (i) { this.check = (i === undefined) ? -1 : i; this.draw(); };
   ChessBoardView.prototype.setFlip = function (f) { this.flip = !!f; this.draw(); };
-  ChessBoardView.prototype.resize = function (px) { this.size = px; this._layout(); this.draw(); };
+  /* 显式改边长：改的是 wantSize（_layout 会再按容器收敛），别直接写 size */
+  ChessBoardView.prototype.resize = function (px) {
+    if (px) this.wantSize = Math.max(240, px);
+    this._layout(); this.draw();
+  };
 
   /* 一枚棋子 */
   ChessBoardView.prototype._piece = function (ctx, cx, cy, cell, color, type) {

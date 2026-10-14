@@ -223,9 +223,17 @@
     ctx.font = Math.max(9, Math.round(c * 0.3)) + 'px ' + FONT;
     var tagW = ctx.measureText(who).width + c * 0.16;
     ctx.restore();
-    /* 行顶边 y —— 棋子的方块画在 top + 0.43c，高 0.88c，所以命中框取 [top, top + 0.86c] */
+    /* 行顶边 y —— 棋子的方块画在 top + 0.43c，高 0.88c，所以命中框取 [top, top + 0.86c]
+       ★ 上排（后手）原来算的是 `by - margin*1.2 - c*0.92`。把 by = handH + margin、
+         handH = round(0.92c) 代进去，得到的其实是 **-0.2*margin** —— 一个负数：
+         行顶边跑到画布上缘之外，后手那排驹的尖头被裁掉约 5px（margin=20 时 4px，
+         盘越宽裁得越多），而下排 `board底 + 0.5*margin` 是好好留了白的，两边不对称。
+         现在按行高反推：让上排**下边缘**离棋盘顶边留 0.5*margin，与下排离棋盘底边
+         的 0.5*margin 正好镜像；行高 0.86c，于是上缘自然剩下
+         by - 0.5margin - 0.86c ≈ 0.06c + 0.5margin —— 恒为正，不会再被裁。
+         只动这一个数：by / handH / h 全部不变，所以整块布局不会被挤下去。 */
     var top = (color === 2)
-      ? this.by - this.margin * 1.2 - c * 0.92
+      ? this.by - c * 0.86 - this.margin * 0.5
       : this.by + c * SIZE + this.margin * 0.5;
     return { who: who, tagW: tagW, top: top, x0: this.bx + tagW };
   };

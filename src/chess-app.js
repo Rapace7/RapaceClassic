@@ -33,7 +33,8 @@ var ChessApp = (function () {
 
   /* 行内 `**粗体**` 与换行 —— 数据文件里统一用这个写法 */
   function md(s) {
-    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+    /* 2026-10-14：配对后兜底剥掉落单的 ** —— 宁可少一处强调，也不许把星号显示给用户 */
+    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*\*/g, '').replace(/\n/g, '<br>');
   }
 
   function data(name) {
@@ -333,8 +334,14 @@ var ChessApp = (function () {
         CH.toLabelI(rec.to) + (rec.promo ? '=' + rec.promo : '');
     }
 
-    function doMove(from, to, promote) {
-      var r = bd.play(from, to, bd.toMove, promote || null, null);
+    /* ★ 第 4 个参数 castle 是从选中着法一路带上来的，不能省。
+       引擎的签名是 play(from,to,color,promote,castle)（chess-engine.js:325），
+       而它认这手棋的办法是拿 castle 去比对生成的着法表：王 e1→g1 在表里是
+       {castle:'K'}，这里传 null 就一条都匹配不上 → 「蓝点亮着、落子却判不合法」。
+       提示走的是 legalMoves 生成的对象，标记就在里面（点评页 :1149 传 pick.castle，
+       同一个页面两处写法不一致，出错的正是没传的那一处）。 */
+    function doMove(from, to, promote, castle) {
+      var r = bd.play(from, to, bd.toMove, promote || null, castle || null);
       if (!r.ok) { flash('这一手不合法。'); return false; }
       log.push(note(r));
       sel = -1; hints = [];
@@ -368,7 +375,8 @@ var ChessApp = (function () {
       if (!cands.length) { flash('这枚棋子走不到那一格。'); return; }
       /* 升变有四种选择，让用户挑 */
       if (cands.length > 1 && cands[0].promo) { askPromo(sel, i); return; }
-      doMove(sel, i, cands[0].promo);
+      /* cands[0].castle 是易位标记（非易位为 undefined），必须跟着传下去 */
+      doMove(sel, i, cands[0].promo, cands[0].castle);
     }
 
     function askPromo(from, to) {
@@ -387,6 +395,7 @@ var ChessApp = (function () {
         b.onclick = function () {
           var t = b.getAttribute('data-p');
           box.style.display = 'none';
+          /* 升变与易位互斥（能升变的只有兵），所以这里不带 castle */
           doMove(promo.from, promo.to, t);
           promo = null;
         };
@@ -394,7 +403,15 @@ var ChessApp = (function () {
     }
 
     $('ch-undo').onclick = function () {
-      var rec = bd.moves.pop();
+      /* ★ 这里只**读**栈顶，不 pop —— 弹栈是引擎的活。
+         以前是 app 先 pop 一次、`undo()` 内部再无条件 pop 一次，一次悔棋吞掉两手：
+         盘面只退回一手，走子栈却少了两手，「最后一手」标记跟着消失，
+         着法记录与盘面各说各话；再点悔棋则因栈已空而什么都不做（退不回去了）。
+         2026-10-14 两头一起收口：调用方改成只读（与 xq-app.js 的悔棋同一写法，
+         理由是走子栈的所有权本来就在引擎，play 往里 push，调用方只读不删），
+         引擎侧 `undo()` 也补上了将棋/象棋早就有的 `if (last === rec) moves.pop()` 守卫
+         （见 chess-engine.js），这样两边无论谁传错都不会再吞两手。 */
+      var rec = bd.moves[bd.moves.length - 1];
       if (!rec) return;
       bd.undo(rec);
       log.pop();
@@ -796,7 +813,7 @@ var ChessApp = (function () {
       if (!E) { host.innerHTML = '<div class="card"><p>没有这一条。</p></div>'; return; }
       host.innerHTML =
         '<div class="crumb small muted" style="margin-bottom:10px"><a href="#/chess/endgame">← 回残局</a></div>' +
-        '<h1>' + esc(E.title) + '</h1><p class="sub">' + esc(E.concl) + '</p>' +
+        '<h1>' + esc(E.title) + '</h1><p class="sub">' + md(E.concl) + '</p>' +
         '<div class="prob-layout">' +
         '<div class="prob-board"><div style="width:100%"><canvas id="ch-e-canvas"></canvas></div>' +
         '<div class="row" style="margin-top:10px">' +
@@ -818,7 +835,7 @@ var ChessApp = (function () {
     list.forEach(function (E) {
       h += '<div class="card" style="cursor:pointer" onclick="location.hash=\'#/chess/endgame/' + E.id + '\'">' +
         '<h3 style="margin-top:0">' + esc(E.title) + '</h3>' +
-        '<p class="small muted" style="margin:0">' + esc(E.concl) + '</p></div>';
+        '<p class="small muted" style="margin:0">' + md(E.concl) + '</p></div>';
     });
     host.innerHTML = h;
   }
@@ -1014,7 +1031,7 @@ var ChessApp = (function () {
         G.keys.map(function (k) {
           return '<div class="sol-row" style="cursor:pointer" data-n="' + k.n + '">' +
             '<span class="sol-n">' + k.n + '.</span><span class="sol-t"><b>' + esc(k.label) + '</b> —— ' +
-            esc(k.text) + '</span></div>';
+            md(k.text) + '</span></div>';
         }).join('') + '</div>';
       $('ch-g-key').querySelectorAll('.sol-row').forEach(function (row) {
         row.onclick = function () { show(parseInt(row.getAttribute('data-n'), 10)); };
@@ -1156,13 +1173,16 @@ var ChessApp = (function () {
       sync();
       if (bd.isMate(CH.other(mover))) {
         done = true;
+        /* ★ 比较要用 moverChar（'w'/'b'），不能拿 mover（1/2）去 === 'w' ——
+           那样永远不成立，白方将杀也会念成「黑方把对方将死了」。 */
         status('<div class="feedback ok"><div class="head">将杀</div><p>' +
-          (mover === 'w' ? '白方' : '黑方') + '把对方将死了。</p></div>');
+          (moverChar === 'w' ? '白方' : '黑方') + '把对方将死了。</p></div>');
       } else if (bd.isStalemate(CH.other(mover))) {
         done = true;
         status('<div class="feedback"><div class="head">逼和</div><p>对方没有合法着法但也没被将军 —— 和棋。</p></div>');
       } else {
-        status('<p class="small muted">轮' + (bd.toMove === 'w' ? '白' : '黑') + '方走。</p>');
+        /* 同上：bd.toMove 是引擎颜色值，得先 colorChar 再比 */
+        status('<p class="small muted">轮' + (CH.colorChar(bd.toMove) === 'w' ? '白' : '黑') + '方走。</p>');
       }
     }
 
@@ -1268,7 +1288,14 @@ var ChessApp = (function () {
       }
       var q = {};
       for (var k in queue[idx]) if (Object.prototype.hasOwnProperty.call(queue[idx], k)) q[k] = queue[idx][k];
+      /* ★ 一次性守卫：战术页的 finish() 不只被「走对」触发，「重来」之后再走一遍、
+         或「看答案」那条 setTimeout 动画链跑完都会再调一次 onDone ——
+         没有这道闸门就会**同一题重复计分、重复进下一题**（一次跳两题）。
+         将棋那边的随机测验（shogi-app.js:157）早就是这么写的，这边补齐。 */
+      var answered = false;
       q.onDone = function (usedAnswer) {
+        if (answered) return;
+        answered = true;
         if (!usedAnswer) ok++;
         idx++;
         var b = document.createElement('button');
